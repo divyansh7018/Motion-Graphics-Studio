@@ -31,7 +31,6 @@ from app.project.store import ProjectStore  # noqa: E402
 from app.project.validation import validate_for_render  # noqa: E402
 from app.ui.context import StartupInfo, create_context  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
-from app.tools.kokoro import VoiceCatalogue  # noqa: E402
 
 RESULTS: list[tuple[str, str, str]] = []
 
@@ -84,7 +83,6 @@ def scenario_2(root: Path) -> None:
     service.set_script_text("Work typed just before the crash.")
     autosave_path = service.autosave()
     layout = service.current_layout
-    folder = layout.root
     # Force-close: no close_project(), so the autosave stays behind.  The lock
     # is left with a pid that no longer exists, exactly as a crash would.
     lock_file = layout.root / ".project.lock.json"
@@ -214,7 +212,6 @@ def scenario_6(root: Path) -> None:
     (folder / "project.json").write_text("{ this is not json", encoding="utf-8")
 
     window2 = new_window(root)
-    service = window2.context.projects.service
     result = ProjectStore().load(folder / "project.json")
     quarantined = list((folder / "backups").glob("*.json"))
     record(

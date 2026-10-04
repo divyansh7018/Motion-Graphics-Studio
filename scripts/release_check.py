@@ -302,7 +302,6 @@ def check_project_lifecycle(report: Report, paths) -> None:
     """
     from app.core.settings import Settings
     from app.project.service import CreateRequest, ProjectService
-    from app.project.store import ProjectStore
 
     started = time.perf_counter()
     lines: list[str] = []
