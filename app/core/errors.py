@@ -235,6 +235,75 @@ class ProjectFormatError(ProjectError):
         )
 
 
+class ProjectVersionError(ProjectFormatError):
+    """``project.json`` uses a schema version this build cannot handle.
+
+    Refusing is deliberate: partially reading a newer file and saving it back
+    would silently delete the parts this build does not understand
+    (directive section 4: "Unknown future schema versions must produce a clear
+    compatibility error instead of corrupting the project").
+    """
+
+    def __init__(self, path: str, stored: int, supported: int, minimum: int = 1) -> None:
+        newer = stored > supported
+        why = (
+            f"This project file uses schema version {stored}, but this build understands "
+            f"versions {minimum}-{supported}."
+        )
+        actions = (
+            (
+                "Update Motion Graphics Studio to a newer version that supports this project.",
+                "Or open the project on the computer that created it and export it in an older format.",
+                "The file has NOT been changed - nothing was lost.",
+            )
+            if newer
+            else (
+                "This project file is older than this build can migrate.",
+                "Open the most recent backup from the project's backups folder.",
+                "The file has NOT been changed - nothing was lost.",
+            )
+        )
+        super().__init__(
+            path=path,
+            why=why,
+            technical=f"schema_version={stored}, supported={minimum}..{supported}",
+        )
+        self.actions = actions
+        self.stored = int(stored)
+        self.supported = int(supported)
+        self.title = "This project needs a different version of the app"
+
+
+class ProjectConflictError(ProjectError):
+    """The project file changed outside this session (directive section 30).
+
+    The application never resolves this silently: overwriting somebody else's
+    newer save is exactly the kind of quiet data loss this build exists to
+    prevent.
+    """
+
+    def __init__(self, path: str, loaded_at: str = "", changed_at: str = "") -> None:
+        detail = "Loaded"
+        if loaded_at:
+            detail += f" here at {loaded_at}"
+        if changed_at:
+            detail += f"; changed on disk at {changed_at}"
+        super().__init__(
+            what_happened="The project changed outside this application.",
+            why=(
+                f"The file on disk is not the one this window loaded ({detail}). "
+                "Another copy of the app, a sync tool or a manual edit changed it."
+            ),
+            actions=(
+                "Reload to see the newer version (your unsaved edits here would be lost).",
+                "Or keep editing this copy and use 'Save as' to store it under a new name.",
+                "Nothing has been overwritten.",
+            ),
+            technical=f"path={path}",
+            error_code="PROJECT_EXTERNAL_CHANGE",
+        )
+
+
 class ValidationError(AppError):
     """Data failed a validation rule (timeline, text fit, audio, output...)."""
 

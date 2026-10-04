@@ -72,6 +72,8 @@ class AppContext(QObject):
         self.startup = startup
         self.last_report: Optional[CheckReport] = None
         self._settings_dirty = False
+        #: Filled in by :func:`create_context`; the single owner of the open project.
+        self.projects = None
 
     # -- settings ----------------------------------------------------------
 
@@ -254,4 +256,10 @@ def create_context(
     )
     if result.source == "recovered":
         context.notify("Settings could not be read - defaults were restored.", 8000)
+    # The project controller is created here so every page can rely on
+    # ``context.projects`` existing (directive section 34: one central service).
+    from .project_controller import ProjectController
+
+    context.projects = ProjectController(context, parent=context)
+
     return context

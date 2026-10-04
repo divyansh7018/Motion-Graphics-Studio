@@ -1,25 +1,26 @@
-# Project file format
+# Project file format (schema v2)
 
-> **Status: planned for Stage B.** The project model is not implemented yet. This
-> document is written now, before the code, because the format is a contract
-> between the GUI, the renderer, the command line and the tests (directive
-> section 6) and it is much harder to change later than to design once.
+**Status: implemented in Stage B.** Everything below describes what the code
+actually writes today - the sample values come from a project created by
+`ProjectService.create_project(...)` and read back from disk.
 
 ---
 
 ## 1. Principles
 
 1. **One file, one truth.** A project is a folder containing `project.json` plus
-   its assets. Every part of the application reads that one model.
-2. **Versioned.** The file carries `schema_version`. A newer file is never
-   silently downgraded; an older file is migrated with a logged, tested step.
-3. **Readable and diff-able.** Plain JSON, stable key order, no binary blobs.
-   Text is stored as text so a user can open it, and a diff shows what changed.
-4. **Deterministic.** Given the same project, assets, theme, resolution and
-   frame rate, rendering produces the same result. Any randomness carries an
-   explicit seed that is stored in the file.
+   its assets. Every part of the application reads that one model; the GUI, the
+   command line and the tests all go through `ProjectService`.
+2. **Versioned.** The file carries `schema_version`. A newer file is refused with
+   a clear message; an older file is migrated by a logged, tested step.
+3. **Readable and diff-able.** Plain JSON, two-space indent, stable key order, no
+   binary blobs.
+4. **Deterministic.** Any randomness carries an explicit seed stored in the file
+   (`project.random_seed`).
 5. **Never destroyed.** Writes are atomic, a backup chain is kept, and autosave
    writes to a separate recovery file so a crash cannot corrupt the project.
+6. **Portable.** Every path inside the project is relative to the project folder,
+   so the folder can be copied to another Windows machine and still work.
 
 ---
 
@@ -28,130 +29,262 @@
 ```
 projects/
     My Project/
-        project.json            the model (this document)
-        project.json.bak        previous successful save (rotating)
-        autosave/
-            project.autosave.json      written by the autosave timer
-            project.<timestamp>.json   older autosaves (bounded)
-        assets/                 images, music and effects used by this project
-        audio/                  generated narration per scene
-        thumbnails/             storyboard thumbnails (regenerable)
-        previews/               draft/medium preview files (regenerable)
+        project.json          the project (the only source of truth)
+        script.txt            the script, byte-identical to script.source_text
+        .project.lock.json    advisory lock (pid + host); removed on close
+        scenes/               per-scene working files (later stages)
+        assets/               imported media (copied in, never linked)
+        audio/                generated narration and mixes (later stages)
+        generated/            regenerable intermediates - safe to delete
+        previews/             regenerable previews - safe to delete
+        renders/              finished output
+        backups/              previous project.json versions + quarantined files
+        autosave/             recovery copies (never project.json)
 ```
 
-* `assets/`, `audio/`, `thumbnails/` and `previews/` are referenced by **relative**
-  paths, so a project folder can be moved or copied to another machine.
-* Only `project.json`, `assets/` and `audio/` are required to open a project;
-  the rest is rebuilt on demand.
+`generated/` and `previews/` are listed as regenerable, so Maintenance can clear
+them without touching anything that cannot be rebuilt.
 
 ---
 
-## 3. Shape of `project.json` (draft)
+## 3. Top-level structure
 
-```jsonc
+```json
 {
-  "schema_version": 1,
-  "app_version": "0.2.0",
-  "id": "my-project-a1b2c3",          // stable folder id, sanitised
-  "name": "My Project",
-  "created_at": "2026-01-01T10:00:00Z",
-  "modified_at": "2026-01-01T10:42:13Z",
-
-  "video": {
-    "width": 1920,
-    "height": 1080,
-    "fps": 30,
-    "background": "#101014"
-  },
-
-  "theme": {
-    "id": "clean-dark",
-    "overrides": { "accent": "#4c8dff" }
-  },
-
-  "audio": {
-    "narration": { "enabled": true, "voice": "af_heart", "speed": 1.0, "volume": 1.0 },
-    "music": { "path": "assets/theme.mp3", "volume": 0.18, "ducking": true },
-    "sfx": []
-  },
-
-  "subtitles": { "enabled": false, "max_lines": 2, "font_size": 44 },
-
-  "scenes": [
-    {
-      "id": "scene-1",
-      "type": "title",                     // title | text | image | number | cta | video | graphic
-      "start": 0.0,                        // seconds, derived from narration when auto-timed
-      "duration": 3.4,
-      "transition_in": { "type": "fade", "duration": 0.4 },
-      "transition_out": { "type": "fade", "duration": 0.4 },
-      "script": "Welcome to the studio.",
-      "narration": {
-        "file": "audio/scene-1.wav",
-        "duration": 2.6,                   // measured from the real audio, never estimated
-        "voice": "af_heart",
-        "speed": 1.0
-      },
-      "elements": [
-        {
-          "id": "el-1",
-          "kind": "text",
-          "text": "Welcome",
-          "anchor": "center",
-          "position": { "x": 0.5, "y": 0.42 },   // normalised 0..1, never pixels
-          "size": { "mode": "relative", "value": 0.12 },
-          "fit": { "auto_fit": true, "max_lines": 2, "min_scale": 0.6 },
-          "color": "#ffffff",
-          "animation": { "in": "fade-up", "out": "fade", "seed": 1234 }
-        }
-      ]
-    }
-  ],
-
-  "render": {
-    "quality": "final",
-    "crf": 20,
-    "audio_bitrate_kbps": 192,
-    "container": "mp4",
-    "encoder": "h264_cpu"
-  },
-
-  "random_seed": 20260101
+  "schema_version": 2,
+  "application_version": "0.2.0",
+  "project": { ... },
+  "format":  { ... },
+  "script":  { ... },
+  "voice":   { ... },
+  "theme":   { ... },
+  "audio":   { ... },
+  "scenes":  [ ... ],
+  "assets":  [ ... ],
+  "export":  { ... }
 }
 ```
 
-### Why these choices
+Unknown keys are preserved: every section keeps an `extra` dict, so a file
+written by a newer build does not lose data when an older build re-saves it.
 
-* **Normalised positions (0..1) and anchors**, never absolute pixels: this is what
-  makes the same project render correctly at 1920×1080, 1080×1920, 1080×1080,
-  1080×1350 and 720p without special cases (directive section 23).
-* **`duration` on narration is measured**, not estimated, and is authoritative for
-  automatic timing (section 27).
-* **`fit` describes intent** (`auto_fit`, `max_lines`, `min_scale`) so text can
-  never silently leave the frame; the renderer reports a warning before rendering
-  if it cannot fit (section 24).
-* **Image fitting is explicit** (`contain`/`cover`/`crop`/`center`/`anchor`) - no
-  silent stretching (section 25).
-* **Seeds are stored** whenever randomness is used, so a render can be repeated
-  exactly (section 22).
+### 3.1 `project`
+
+```json
+{
+  "id": "project-8f28a615",
+  "name": "Documentation Sample",
+  "description": "",
+  "channel_id": "",
+  "channel_name": "My Channel",
+  "created_at": "2026-10-04T22:58:17Z",
+  "modified_at": "2026-10-04T22:58:17Z",
+  "project_version": 2,
+  "application_version": "0.2.0",
+  "template": "youtube",
+  "favorite": false,
+  "archived": false,
+  "random_seed": 38647801
+}
+```
+
+`project_version` increases on every successful save; it is what the output file
+name uses and what tells the user which copy is newest. `template` records where
+the project started, for information only - changing a template later never
+alters an existing project.
+
+### 3.2 `format`
+
+```json
+{
+  "width": 1920, "height": 1080, "aspect_ratio": "16:9", "fps": 30,
+  "quality_preset": "high", "codec": "h264_cpu", "crf": 20,
+  "bitrate_kbps": 0, "encoder_preset": "slow", "pixel_format": "yuv420p",
+  "keyframe_interval": 2, "audio_codec": "aac", "audio_bitrate_kbps": 192,
+  "sample_rate": 48000, "container": "mp4", "background": "#101014"
+}
+```
+
+* `quality_preset` is one of `draft | standard | high | ultra | custom`. The
+  preset is **resolved** into the explicit fields at creation time, so the file
+  always contains the real encoder settings. Selecting a preset never silently
+  downgrades anything: if the requested preset cannot be honoured, validation
+  reports it.
+* `bitrate_kbps` of `0` means "use CRF".
+* `codec` values end in `_cpu` because this build targets CPU-only machines; no
+  NVIDIA/NVENC path is offered.
+* Codec, container and pixel format must agree - `validate_for_render()` reports
+  `CODEC_CONTAINER` / `AUDIO_CODEC` errors before a render can start.
+
+### 3.3 `script`
+
+```json
+{
+  "source_text": "",
+  "notes": "Write one idea per paragraph. Each paragraph becomes a scene later.",
+  "sections": [],
+  "estimated_duration_seconds": 0.0,
+  "words_per_minute": 150
+}
+```
+
+`source_text` is the user's text, stored **byte-exact**. `script.txt` is a copy
+of it - the application never reformats, re-wraps or adds a trailing newline.
+`sections` (titled blocks) and the estimate are filled in by later stages.
+
+### 3.4 `voice`
+
+```json
+{
+  "engine": "kokoro", "language": "en-us", "gender": "",
+  "voice": "", "speed": 1.0, "volume": 1.0, "sample_rate": 24000
+}
+```
+
+An empty `voice` means "use the first voice the installed engine offers". The
+interface never invents voice names: it lists only voices found in a real
+catalogue (`models/voices.json`), and says so plainly when there are none.
+Kokoro-82M is the only V1 engine.
+
+### 3.5 `theme`
+
+```json
+{
+  "id": "clean-dark",
+  "background": "#101014",
+  "accent": "#4c8dff",
+  "colors": { "background": "#101014", "accent": "#4c8dff", "text": "#ffffff" },
+  "typography": {
+    "heading_font": "DejaVu Sans", "body_font": "DejaVu Sans",
+    "heading_scale": 1.0, "body_scale": 1.0, "line_height": 1.2
+  },
+  "subtitle_style": {
+    "enabled": false, "font": "DejaVu Sans", "font_size": 44,
+    "color": "#ffffff", "outline_color": "#000000", "outline_width": 2.0,
+    "max_lines": 2, "safe_area_percent": 8.0
+  }
+}
+```
+
+Fonts are stored by family name only. If a family is not installed on the
+machine, the renderer substitutes and validation reports it - the project file
+is never rewritten behind the user's back.
+
+### 3.6 `audio`
+
+```json
+{
+  "narration_enabled": true, "narration_volume": 1.0,
+  "music": { "path": "", "volume": 0.18, "loop": true, "fade_in": 1.0, "fade_out": 2.0 },
+  "sfx": [],
+  "ducking_enabled": true, "ducking_level": 0.35,
+  "normalize_enabled": true, "target_lufs": -16.0, "sample_rate": 48000
+}
+```
+
+`music.path` and every `sfx[].path` are project-relative. Stage B stores these
+settings; the mixing itself arrives in Stage E.
+
+### 3.7 `scenes` (ordered)
+
+```json
+{
+  "id": "scene-1", "name": "Intro", "type": "title", "script": "Hello.",
+  "notes": "", "duration": 4.0, "background": "",
+  "transition_in":  { "type": "none", "duration": 0.0 },
+  "transition_out": { "type": "none", "duration": 0.0 },
+  "narration": { "file": "", "duration": 0.0, "voice": "", "speed": 1.0, "text": "" },
+  "elements": []
+}
+```
+
+Order in the array **is** the timeline order. A blank project has an empty
+array - Stage B never creates placeholder scenes, narration or media.
+
+### 3.8 `assets`
+
+```json
+{
+  "id": "asset-9b45101e", "name": "logo.png", "kind": "image",
+  "path": "assets/logo.png", "absolute_path": "",
+  "size_bytes": 72, "width": 0, "height": 0, "duration": 0.0,
+  "imported_at": "2026-10-04T22:45:16Z",
+  "checksum": "5158ccdeb93a5397fe14d70bede56d80",
+  "notes": "", "missing": false
+}
+```
+
+* `path` is project-relative and preferred. `absolute_path` is only used when a
+  file genuinely cannot be copied, and the interface marks it clearly;
+  validation warns (`PATH_ABSOLUTE`).
+* A path that escapes the project folder (`..`) is an **error** (`PATH_ESCAPES`).
+* `missing` is refreshed by the asset check; a missing file is data, never a
+  crash, and the interface offers Relink / Replace / Ignore.
+* `checksum` lets a relinked or replaced file be recognised later.
+
+### 3.9 `export`
+
+```json
+{
+  "output_dir": "renders", "output_dir_absolute": false,
+  "filename_template": "{name}_{seq}", "next_sequence_number": 1,
+  "container": "mp4", "codec": "h264_cpu", "crf": 20, "bitrate_kbps": 0,
+  "encoder_preset": "slow", "pixel_format": "yuv420p", "keyframe_interval": 2,
+  "audio_codec": "aac", "audio_bitrate_kbps": 192, "sample_rate": 48000,
+  "overwrite_policy": "never"
+}
+```
+
+`filename_template` supports `{name}`, `{project}`, `{channel}`, `{seq}`,
+`{version}`, `{date}`. Invalid filename characters are replaced. Output is never
+overwritten: the sequence number increases until the name is free
+(`overwrite_policy` is always `"never"`).
 
 ---
 
-## 4. Rules the code must follow (Stage B checklist)
+## 4. Versioning and migration
 
-1. `Project.from_dict` / `to_dict` are the only (de)serialisation entry points.
-2. Loading validates: required fields, types, ranges, scene timing (no negative
-   durations; overlaps only where allowed), unique ids, and that referenced files
-   are inside the project folder.
-3. A file with a **newer** `schema_version` is refused with a clear message
-   instead of being partially read.
-4. A damaged file is never overwritten: it is copied to `backups/` and the user is
-   offered the most recent good backup and the newest autosave.
-5. Saving writes atomically and keeps a rotating backup.
-6. Autosave writes `autosave/project.autosave.json`; it never touches
-   `project.json`.
-7. On startup, a recovery file newer than the project file triggers the
-   "Recovered Project Available → Restore / Ignore / Open backup" prompt. A
-   recovery file is never applied automatically.
-8. Undo/redo operates on project snapshots through the one model - never on
-   widget state.
+| Situation | Behaviour |
+|---|---|
+| `schema_version == 2` | opened directly |
+| `schema_version == 1` | migrated by `migrate_project_data()`, logged as `PROJECT_MIGRATION`, then validated again |
+| `schema_version > 2` | **refused** with `ProjectVersionError`: "created by a newer version" |
+| missing `schema_version` | treated as v1 and migrated |
+| unparsable JSON | not opened; the damaged file is copied to `backups/*.corrupt-<stamp>` and a friendly error is shown |
+
+The v1 → v2 step moves the flat v1 keys into the section layout, fills defaults
+for the new sections and keeps anything unrecognised in `extra`.
+
+`application_version` records which build wrote the file. It is informational;
+compatibility is decided by `schema_version` alone.
+
+---
+
+## 5. Saving
+
+`ProjectStore.save()`:
+
+1. validates first - a project with errors is **not** written;
+2. writes `backups/.pending-save.json` (an interrupted-save marker);
+3. backs the current `project.json` up to `backups/project_<date>_<n>.json`;
+4. atomically writes the new `project.json` (temp file + `os.replace`);
+5. writes `script.txt` byte-exactly when there is script text;
+6. removes the pending marker;
+7. prunes backups and autosaves to the configured retention (default 10 each).
+
+A save that fails part-way (disk full, OneDrive lock, antivirus) is caught and
+reported as "not saved" - the previous `project.json` stays intact.
+
+**Autosave** never touches `project.json`. It writes `autosave/` and only when
+the project actually changed. On the next start, `scan_recovery()` compares
+content (never timestamps) and offers **Restore / Open original / Ignore**.
+
+---
+
+## 6. What is *not* in the file
+
+* No absolute paths except the explicitly marked `absolute_path` case.
+* No caches, no thumbnails, no render output. Thumbnails live in the
+  application cache; renders live in `renders/`.
+* No secrets, no accounts, no licence or activation data - there is no
+  licensing, cloud or subscription feature in this build.

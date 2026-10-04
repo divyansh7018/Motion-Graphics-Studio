@@ -19,6 +19,8 @@ Nothing here touches the network.  A missing component produces a *status*
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Sequence
@@ -244,3 +246,189 @@ def install_instructions() -> Sequence[str]:
         "Install the phonemiser:  pip install misaki",
         "Return to the app and press 'Re-check system'.",
     )
+
+
+# --------------------------------------------------------------------------
+# Voice catalogue (used by the New Project wizard and the Voice page)
+# --------------------------------------------------------------------------
+
+#: Kokoro voice ids start with a two-letter tag: the first letter is the
+#: language/accent, the second the gender.  Used only to label voices that a
+#: catalogue file did not describe - never to invent voices.
+_LANGUAGE_PREFIXES: dict[str, str] = {
+    "a": "en-us",
+    "b": "en-gb",
+    "e": "en",
+    "f": "fr-fr",
+    "h": "hi",
+    "i": "it-it",
+    "j": "ja",
+    "p": "pt-br",
+    "z": "cmn",
+}
+
+GENDERS: tuple[str, ...] = ("female", "male", "other")
+
+
+@dataclass(frozen=True)
+class VoiceInfo:
+    """One voice the installed engine can actually speak."""
+
+    id: str
+    language: str = ""
+    gender: str = ""
+    source: str = ""
+
+    def label(self) -> str:
+        parts = [self.id]
+        if self.language:
+            parts.append(self.language)
+        if self.gender:
+            parts.append(self.gender)
+        return " - ".join(parts)
+
+
+@dataclass
+class VoiceCatalogue:
+    """What voices are available, and why the list may be empty."""
+
+    voices: list = field(default_factory=list)
+    source: str = ""
+    reason: str = ""
+
+    @property
+    def available(self) -> bool:
+        return bool(self.voices)
+
+    def languages(self) -> list:
+        seen: list = []
+        for voice in self.voices:
+            if voice.language and voice.language not in seen:
+                seen.append(voice.language)
+        return sorted(seen)
+
+    def genders(self, language: str = "") -> list:
+        seen: list = []
+        for voice in self.voices:
+            if language and voice.language != language:
+                continue
+            if voice.gender and voice.gender not in seen:
+                seen.append(voice.gender)
+        return seen
+
+    def by_language(self, language: str) -> list:
+        return [voice for voice in self.voices if not language or voice.language == language]
+
+    def by_language_and_gender(self, language: str, gender: str) -> list:
+        return [
+            voice
+            for voice in self.voices
+            if (not language or voice.language == language) and (not gender or voice.gender == gender)
+        ]
+
+    def headline(self) -> str:
+        if self.voices:
+            return f"{len(self.voices)} voice(s) available ({self.source})."
+        return self.reason or "No voices were found."
+
+
+def _voice_from_id(voice_id: str, source: str) -> VoiceInfo:
+    """Derive language/gender from a Kokoro voice id such as ``af_heart``."""
+    tag = voice_id[:2].lower()
+    language = _LANGUAGE_PREFIXES.get(tag[:1], "")
+    gender = {"f": "female", "m": "male"}.get(tag[1:2], "")
+    return VoiceInfo(id=voice_id, language=language, gender=gender, source=source)
+
+
+def discover_voices(model_dir: Optional[Path] = None, extra_dirs: Sequence[Path] = ()) -> VoiceCatalogue:
+    """List the voices that are actually installed.
+
+    Only voices described by a real catalogue file are returned.  When there is
+    no catalogue the result is empty **with a reason**, so the interface can say
+    "no voices yet" instead of offering names that would fail at narration time
+    (directive sections 16 and 54).
+    """
+    candidates: list[Path] = []
+    for directory in [Path(model_dir) if model_dir else None, *(Path(item) for item in extra_dirs)]:
+        if directory is None:
+            continue
+        for name in ("voices.json", "voice_catalogue.json"):
+            candidate = Path(directory) / name
+            if candidate.is_file():
+                candidates.append(candidate)
+
+    for path in candidates:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            log_event(
+                Event.WARNING,
+                "A voice catalogue could not be read",
+                level=logging.WARNING,
+                logger=LOGGER,
+                path=str(path),
+                reason=str(exc),
+            )
+            continue
+
+        voices: list[VoiceInfo] = []
+        if isinstance(raw, dict):
+            for key, value in raw.items():
+                language = ""
+                if isinstance(value, (list, tuple)) and value and isinstance(value[0], str):
+                    language = value[0]
+                elif isinstance(value, dict) and isinstance(value.get("language"), str):
+                    language = value["language"]
+                derived = _voice_from_id(str(key), path.name)
+                voices.append(
+                    VoiceInfo(
+                        id=str(key),
+                        language=language or derived.language,
+                        gender=derived.gender,
+                        source=path.name,
+                    )
+                )
+        elif isinstance(raw, list):
+            for entry in raw:
+                if isinstance(entry, str):
+                    voices.append(_voice_from_id(entry, path.name))
+                elif isinstance(entry, dict) and entry.get("id"):
+                    derived = _voice_from_id(str(entry["id"]), path.name)
+                    voices.append(
+                        VoiceInfo(
+                            id=str(entry["id"]),
+                            language=str(entry.get("language") or derived.language),
+                            gender=str(entry.get("gender") or derived.gender),
+                            source=path.name,
+                        )
+                    )
+
+        if voices:
+            log_event(
+                Event.VOICES_SCANNED,
+                "Voice catalogue discovered",
+                logger=LOGGER,
+                count=len(voices),
+                source=str(path),
+            )
+            return VoiceCatalogue(voices=sorted(voices, key=lambda voice: voice.id), source=str(path))
+
+    reason = (
+        "No voice catalogue was found. Install the Kokoro voice engine and its model, "
+        "or place voices.json in the models folder. Narration will use the first "
+        "available voice until then."
+    )
+    log_event(Event.KOKORO_MISSING, "No voice catalogue available", logger=LOGGER, reason="catalogue file missing")
+    return VoiceCatalogue(voices=[], reason=reason)
+
+
+__all__ = [
+    "GENDERS",
+    "INSTALL_HINT",
+    "KokoroStatus",
+    "VoiceCatalogue",
+    "VoiceInfo",
+    "discover_voices",
+    "install_instructions",
+    "probe_kokoro",
+]

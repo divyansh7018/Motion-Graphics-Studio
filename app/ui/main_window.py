@@ -13,6 +13,7 @@ Pages themselves own nothing global; they receive the :class:`AppContext`.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -34,7 +35,7 @@ from ..core import maintenance
 from ..core.env import process_cpu_percent, system_cpu_percent
 from ..core.events import Event
 from ..core.logging_setup import get_logger, log_event
-from ..core.version import APP_NAME, APP_VERSION, version_string
+from ..core.version import APP_NAME, APP_STAGE_LABEL, APP_VERSION, version_string
 from ..jobs.manager import JobManager
 from ..jobs.states import JobState
 from .context import AppContext
@@ -52,6 +53,10 @@ from .views.maintenance import MaintenancePage
 from .views.settings_view import SettingsPage
 from .views.system_check import SystemCheckPage
 from .views.welcome import WelcomePage
+from ..core.errors import AppError
+from .views.project_browser import ProjectBrowserPage
+from .views.project_settings import ProjectSettingsPage
+from .views.project_view import ProjectPage
 from .widgets.job_panel import JobProgressWidget
 
 LOGGER = get_logger("main_window")
@@ -60,14 +65,15 @@ LOGGER = get_logger("main_window")
 #: clearly-labelled placeholder for a later stage (directive section 54).
 PAGES: tuple[tuple[str, str, str, str], ...] = (
     # (key, label, section, status)
-    ("welcome", "Welcome", "Start", "ready"),
+    ("welcome", "Dashboard", "Start", "ready"),
+    ("project", "Project", "Create", "ready"),
+    ("project_settings", "Project settings", "Create", "ready"),
+    ("projects", "Projects", "Create", "ready"),
     ("system_check", "System check", "Start", "ready"),
 )
 
 FUTURE_PAGES: tuple[tuple[str, str, str], ...] = (
     # (label, section, stage note)
-    ("Project", "Create", "Stage B - project model"),
-    ("Script", "Create", "Stage B - script editor"),
     ("Voice", "Create", "Stage C - Kokoro"),
     ("Visuals", "Create", "Stage H - images"),
     ("Music", "Create", "Stage E - audio"),
@@ -108,12 +114,14 @@ class MainWindow(QMainWindow):
         self._closing = False
         self._job_results_shown: set[str] = set()
 
-        self.setWindowTitle(f"{APP_NAME} {APP_VERSION} - Stage A foundation")
+        self._base_title = f"{APP_NAME} {APP_VERSION} - {APP_STAGE_LABEL}"
+        self.setWindowTitle(self._base_title)
         self.setMinimumSize(METRICS.window_min_width, METRICS.window_min_height)
 
         self._build_ui()
         self._build_menus()
         self._connect_signals()
+        self._update_project_actions()
         self._restore_geometry()
         self._refresh_readiness_indicator()
         self._start_resource_timer()
@@ -217,6 +225,9 @@ class MainWindow(QMainWindow):
 
     def _build_pages(self) -> None:
         self.welcome_page = WelcomePage(self.context)
+        self.project_page = ProjectPage(self.context)
+        self.project_settings_page = ProjectSettingsPage(self.context)
+        self.projects_page = ProjectBrowserPage(self.context)
         self.system_check_page = SystemCheckPage(self.context)
         self.settings_page = SettingsPage(self.context)
         self.maintenance_page = MaintenancePage(self.context)
@@ -224,6 +235,9 @@ class MainWindow(QMainWindow):
 
         self._pages: dict[str, QWidget] = {
             "welcome": self.welcome_page,
+            "project": self.project_page,
+            "project_settings": self.project_settings_page,
+            "projects": self.projects_page,
             "system_check": self.system_check_page,
             "settings": self.settings_page,
             "maintenance": self.maintenance_page,
@@ -239,6 +253,8 @@ class MainWindow(QMainWindow):
         self.welcome_page.open_settings.connect(lambda: self.show_page("settings"))
         self.welcome_page.open_data_folder.connect(lambda: open_folder(self, self.context.paths.data_root))
         self.welcome_page.open_output_folder.connect(lambda: open_folder(self, self.context.paths.output_dir))
+
+        self._connect_project_pages()
 
         self.system_check_page.check_requested.connect(self.run_system_check)
         self.system_check_page.open_settings.connect(lambda: self.show_page("settings"))
@@ -273,18 +289,38 @@ class MainWindow(QMainWindow):
 
         # -- File ---------------------------------------------------------
         file_menu = menu_bar.addMenu("&File")
-        self.new_project_action = self._future_action(
-            "New project...", "Ctrl+N", "Stage B adds project creation (project.json, autosave, recovery)."
-        )
-        self.open_project_action = self._future_action(
-            "Open project...", "Ctrl+O", "Stage B adds opening existing projects."
-        )
-        self.save_project_action = self._future_action(
-            "Save project", "Ctrl+S", "Stage B adds saving. Nothing is lost when the app closes today because there is no project data yet."
-        )
+        self.new_project_action = QAction("New project...", self)
+        self.new_project_action.setShortcut("Ctrl+N")
+        self.new_project_action.triggered.connect(self.new_project)
+
+        self.open_project_action = QAction("Open project...", self)
+        self.open_project_action.setShortcut("Ctrl+O")
+        self.open_project_action.triggered.connect(self.open_project)
+
+        self.save_project_action = QAction("Save project", self)
+        self.save_project_action.setShortcut("Ctrl+S")
+        self.save_project_action.triggered.connect(self.save_project)
+
+        self.save_as_project_action = QAction("Save project as...", self)
+        self.save_as_project_action.setShortcut("Ctrl+Shift+S")
+        self.save_as_project_action.triggered.connect(self.save_project_as)
+
+        self.duplicate_project_action = QAction("Duplicate project...", self)
+        self.duplicate_project_action.triggered.connect(self.duplicate_project)
+
+        self.close_project_action = QAction("Close project", self)
+        self.close_project_action.triggered.connect(self.close_project)
+
         file_menu.addAction(self.new_project_action)
         file_menu.addAction(self.open_project_action)
         file_menu.addAction(self.save_project_action)
+        file_menu.addAction(self.save_as_project_action)
+        file_menu.addAction(self.duplicate_project_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.close_project_action)
+
+        # The recent list lives in the File menu, rebuilt whenever it changes.
+        self.recent_menu = file_menu.addMenu("Recent projects")
         file_menu.addSeparator()
 
         open_data_action = QAction("Open data folder", self)
@@ -419,6 +455,213 @@ class MainWindow(QMainWindow):
             self.diagnostics_page.refresh()
         if str(key) == "maintenance":
             self.maintenance_page.refresh()
+        if str(key) == "project":
+            self.project_page.refresh()
+        if str(key) == "project_settings":
+            self.project_settings_page.refresh()
+        if str(key) == "welcome":
+            self.welcome_page.refresh()
+
+    # ------------------------------------------------------------------
+    # Projects (Stage B)
+    # ------------------------------------------------------------------
+
+    def _connect_project_pages(self) -> None:
+        """Wire the project pages to the controller - no logic in the widgets."""
+        controller = self.context.projects
+        if controller is None:
+            return
+
+        controller.project_opened.connect(self._on_project_opened)
+        controller.project_closed.connect(self._on_project_closed)
+        controller.dirty_changed.connect(lambda _dirty: self._update_title())
+        controller.recent_changed.connect(self._refresh_recent_menu)
+        controller.message.connect(self._show_status_message)
+
+        page = self.project_page
+        page.save_requested.connect(lambda: self.save_project())
+        page.save_as_requested.connect(lambda: self.save_project_as())
+        page.duplicate_requested.connect(lambda: self.duplicate_project())
+        page.rename_requested.connect(lambda: self.rename_project())
+        page.rename_folder_requested.connect(lambda: self.rename_project_folder())
+        page.close_requested.connect(lambda: self.close_project())
+        page.open_settings_page.connect(lambda: self.show_page("project_settings"))
+        page.project_changed.connect(self._on_project_edited)
+
+        settings_page = self.project_settings_page
+        settings_page.save_requested.connect(lambda: self._save_project_settings())
+        settings_page.discard_requested.connect(lambda: self._discard_project_settings())
+        settings_page.project_changed.connect(self._on_project_edited)
+
+        self.welcome_page.new_project.connect(self.new_project)
+        self.welcome_page.open_project.connect(self.open_project)
+        self.welcome_page.open_browser.connect(lambda: self.show_page("projects"))
+        self.welcome_page.open_project_path.connect(lambda path: self.open_project_path(path))
+        self.projects_page.open_project_path.connect(lambda path: self.open_project_path(path))
+        self.projects_page.new_project.connect(self.new_project)
+
+        self._refresh_recent_menu()
+        self._update_title()
+
+    def new_project(self) -> None:
+        controller = self.context.projects
+        if controller is not None and controller.new_project(self):
+            self.show_page("project")
+
+    def open_project(self) -> None:
+        controller = self.context.projects
+        if controller is not None and controller.open_project_dialog(self):
+            self.show_page("project")
+
+    def open_project_path(self, path) -> None:
+        controller = self.context.projects
+        if controller is not None and controller.open_path(Path(path), self):
+            self.show_page("project")
+
+    def save_project(self) -> None:
+        controller = self.context.projects
+        if controller is not None:
+            controller.save(self, reason="user pressed save")
+
+    def save_project_as(self) -> None:
+        controller = self.context.projects
+        if controller is not None:
+            controller.save_as(self)
+
+    def duplicate_project(self) -> None:
+        controller = self.context.projects
+        if controller is not None:
+            controller.duplicate(self)
+
+    def rename_project(self) -> None:
+        """Change the project name only; the folder is a separate action."""
+        controller = self.context.projects
+        if controller is None or not controller.is_open:
+            self._show_status_message("No project is open.", 4000)
+            return
+        from PySide6.QtWidgets import QInputDialog
+
+        name, ok = QInputDialog.getText(
+            self, "Rename project", "New name:", text=controller.display_name()
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            controller.service.rename_project(name.strip())
+        except AppError as exc:
+            show_error(self, exc.friendly(), "The project could not be renamed")
+            return
+        self.project_page.refresh()
+        self._update_title()
+        self._show_status_message(f"Renamed to “{name.strip()}”. Press Save to write it to disk.", 7000)
+
+    def rename_project_folder(self) -> None:
+        controller = self.context.projects
+        if controller is None or not controller.is_open:
+            self._show_status_message("No project is open.", 4000)
+            return
+        from PySide6.QtWidgets import QInputDialog
+
+        current = controller.layout.root.name
+        name, ok = QInputDialog.getText(self, "Rename project folder", "New folder name:", text=current)
+        if not ok or not name.strip() or name.strip() == current:
+            return
+        if not ask_confirm(
+            self,
+            "Rename the folder on disk?",
+            f"'{current}' becomes '{name.strip()}'.\n\n"
+            "Anything outside the project that points at the old folder will stop finding it.",
+            confirm_label="Rename folder",
+        ):
+            return
+        try:
+            controller.service.rename_project_folder(name.strip())
+        except AppError as exc:
+            show_error(self, exc.friendly(), "The folder could not be renamed")
+            return
+        self.project_page.refresh()
+        self._update_title()
+        self._refresh_recent_menu()
+
+    def close_project(self) -> None:
+        controller = self.context.projects
+        if controller is not None and controller.close(self):
+            self.show_page("welcome")
+
+    def _save_project_settings(self) -> None:
+        self.project_settings_page.apply_changes()
+        self.save_project()
+        self.project_settings_page.refresh()
+        self.project_page.refresh()
+
+    def _discard_project_settings(self) -> None:
+        controller = self.context.projects
+        if controller is None or not controller.is_open:
+            return
+        controller.service.discard_changes()
+        self.project_settings_page.refresh()
+        self.project_page.refresh()
+        self._update_title()
+        self._show_status_message("Project settings restored to the last saved version.", 6000)
+
+    def _on_project_edited(self) -> None:
+        self._update_title()
+        self.project_page.refresh_title()
+
+    def _on_project_opened(self, project) -> None:
+        self.project_page.refresh()
+        self.project_settings_page.refresh()
+        self.welcome_page.refresh()
+        self._refresh_recent_menu()
+        self._update_title()
+        self._update_project_actions()
+
+    def _on_project_closed(self) -> None:
+        self.project_page.refresh()
+        self.project_settings_page.refresh()
+        self.welcome_page.refresh()
+        self._refresh_recent_menu()
+        self._update_title()
+        self._update_project_actions()
+
+    def _update_project_actions(self) -> None:
+        controller = self.context.projects
+        available = controller is not None and controller.is_open
+        for action in (
+            self.save_project_action,
+            self.save_as_project_action,
+            self.duplicate_project_action,
+            self.close_project_action,
+        ):
+            action.setEnabled(available)
+
+    def _update_title(self) -> None:
+        controller = self.context.projects
+        if controller is None or not controller.is_open:
+            self.setWindowTitle(self._base_title)
+            return
+        self.setWindowTitle(f"{controller.display_name()}{controller.title_suffix()} - {self._base_title}")
+
+    def _refresh_recent_menu(self) -> None:
+        """Rebuild File > Recent projects from the stored recent list."""
+        menu = getattr(self, "recent_menu", None)
+        controller = self.context.projects
+        if menu is None or controller is None:
+            return
+        menu.clear()
+        entries = controller.recent_projects()
+        if not entries:
+            empty = menu.addAction("No recent projects")
+            empty.setEnabled(False)
+            return
+        for entry in entries[:10]:
+            label = entry.name or entry.folder.name
+            if not entry.folder.is_dir():
+                label += " (folder missing)"
+            action = menu.addAction(label)
+            action.setToolTip(str(entry.folder))
+            folder = entry.folder
+            action.triggered.connect(lambda _checked=False, path=folder: self.open_project_path(path))
 
     def show_page(self, key: str) -> None:
         """Switch to a page by key (used by the welcome cards and menus)."""
@@ -748,12 +991,28 @@ class MainWindow(QMainWindow):
         Deferred with a single-shot timer so the window paints first - startup
         never blocks on the check (sections 46/48).
         """
-        QTimer.singleShot(250, lambda: self.run_system_check(deep=False))
+        QTimer.singleShot(250, self._begin_startup_work)
+
+    def _begin_startup_work(self) -> None:
+        """Offer recovery data first, then run the readiness check.
+
+        Both happen after the window is painted, so startup never blocks on a
+        scan of the projects folder (sections 13 and 36).
+        """
+        controller = self.context.projects
+        if controller is not None:
+            controller.check_recovery(self)
+        self.run_system_check(deep=False)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt API
         """Close safely: confirm, cancel jobs, save state, flush logs."""
         if self._closing:
             event.accept()
+            return
+
+        controller = self.context.projects
+        if controller is not None and not controller.close(self, reason="closing the application"):
+            event.ignore()
             return
 
         active = self.jobs.active_jobs()
@@ -792,6 +1051,8 @@ class MainWindow(QMainWindow):
             log_event(Event.WARNING, "Some tasks did not stop before closing", logger=LOGGER, count=len(stragglers))
 
         self._resource_timer.stop()
+        if self.context.projects is not None:
+            self.context.projects.shutdown()
         self._save_window_state()
         self.context.jobs.forget_finished()
         logging_setup.get_logger().info("Application closed cleanly")

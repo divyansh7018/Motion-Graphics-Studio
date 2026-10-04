@@ -4,8 +4,8 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 147 tests passing** (Stage A). Measured on the reference
-machine class (see `STAGE_A_REPORT.md` for the exact run).
+**Current status: 360 tests passing** (Stage A 153 + Stage B 207). See
+`STAGE_A_REPORT.md` and `STAGE_B_REPORT.md` for the exact runs.
 
 ---
 
@@ -14,21 +14,37 @@ machine class (see `STAGE_A_REPORT.md` for the exact run).
 | Level | What it proves | Where |
 |---|---|---|
 | Unit | pure logic: paths, settings, state machine, progress, naming | `tests/test_paths.py`, `test_settings.py`, `test_atomicio.py`, `test_jobs.py`, `test_packages.py` |
-| Integration | real files, real subprocesses, real Qt objects | `test_ffmpeg.py`, `test_maintenance.py`, `test_system_check.py`, `test_job_manager.py`, `test_smoke.py`, `test_cli.py` |
-| GUI | the shell builds, navigates, stays responsive, closes cleanly | `test_gui.py` |
+| Project model | schema, sections, migration, validation, presets, history | `test_project_model.py`, `test_project_migrations.py`, `test_project_validation.py`, `test_project_presets.py`, `test_project_history.py` |
+| Project storage | atomic save, backups, rotation, autosave, recovery, locking, assets | `test_project_store.py`, `test_project_recovery.py`, `test_project_lock.py`, `test_project_assets.py` |
+| Project service | create/open/save/save-as/duplicate/rename/delete/recent | `test_project_service.py` |
+| Integration | real files, real subprocesses, real Qt objects | `test_ffmpeg.py`, `test_maintenance.py`, `test_system_check.py`, `test_job_manager.py`, `test_smoke.py`, `test_cli.py`, `test_project_cli.py` |
+| GUI | the shell and every project page build, navigate, save, stay responsive, close cleanly | `test_gui.py`, `test_project_ui.py` |
 | End-to-end | folders → settings → FFmpeg → real encode → validation → cleanup → jobs → cancel | `app/diagnostics/smoke.py` |
-| Manual | start, click, watch, close on the real desktop | `docs/STAGE_A_REPORT.md` checklist |
+| Release check | 10 steps on a throw-away data folder, including the project lifecycle | `scripts/release_check.py` |
+| Manual | start, click, watch, close on the real desktop | `docs/STAGE_A_REPORT.md`, `docs/STAGE_B_REPORT.md`, `scripts/stage_b_manual_matrix.py` |
 
 ---
 
 ## 2. Running
 
 ```bash
-python -m pytest tests -q                     # everything
-python -m pytest tests -q -k "not gui"        # without the UI tests
-python -m pytest tests -q --tb=short          # compact failures
-python -m pytest tests/test_gui.py -q         # only the interface
+python -m pytest tests -q                        # everything
+python -m pytest tests -q -k "not gui"           # without the UI tests
+python -m pytest tests -q --tb=short             # compact failures
+python -m pytest tests/test_gui.py -q            # only the interface
+python -m pytest tests/test_project_ui.py -q     # only the project pages
+python -m pytest tests -q -k project             # everything project related
+
+# the ten Stage B manual scenarios, headless, with a printed pass/fail table
+python scripts/stage_b_manual_matrix.py --data-root /tmp/mgs_matrix
+
+# the whole release check (10 steps) on a throw-away folder
+python scripts/release_check.py --data-root /tmp/mgs_release --with-pytest
 ```
+
+In a container without the Qt system libraries, prefix the test command with
+`LD_LIBRARY_PATH=/tmp/stublib QT_QPA_PLATFORM=offscreen` after running
+`python scripts/make_qt_stubs.py` (see `DEVELOPMENT.md` §4).
 
 Requirements: `pip install -r requirements-dev.txt`. The GUI tests set
 `QT_QPA_PLATFORM=offscreen` themselves, so a headless machine works.

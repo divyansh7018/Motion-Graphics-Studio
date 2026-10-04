@@ -294,6 +294,89 @@ def check_output_naming(report: Report, paths) -> None:
         report.add(Step("Output naming never overwrites", False, f"{type(exc).__name__}: {exc}", time.perf_counter() - started))
 
 
+def check_project_lifecycle(report: Report, paths) -> None:
+    """Create, save, autosave, recover, duplicate and delete a real project.
+
+    This is the Stage B equivalent of the smoke test: it exercises the same
+    service the interface uses, against the real data folder.
+    """
+    from app.core.settings import Settings
+    from app.project.service import CreateRequest, ProjectService
+    from app.project.store import ProjectStore
+
+    started = time.perf_counter()
+    lines: list[str] = []
+    ok = True
+    try:
+        service = ProjectService(paths, Settings())
+        project = service.create_project(CreateRequest(name="Release Check Video", channel_name="Release"))
+        folder = service.current_layout.root
+        lines.append(f"created {folder.name}")
+
+        service.set_script_text("A line of narration for the release check.")
+        result = service.save()
+        ok = ok and result.ok
+        lines.append(f"saved version {result.project_version}, backup={result.backup.name if result.backup else 'none'}")
+
+        service.set_script_text("Changed after the save.")
+        autosave = service.autosave()
+        lines.append(f"autosave written: {autosave.name if autosave else 'nothing'}")
+        service.close_project(save=False)
+
+        # A crash leaves the autosave behind; the scan must find it.
+        candidates = service.scan_recovery()
+        lines.append(f"recovery candidates: {len(candidates)}")
+        ok = ok and bool(candidates)
+        if candidates:
+            restored = service.restore_recovery(candidates[0])
+            ok = ok and restored.script.source_text == "Changed after the save."
+            lines.append("restored the recovered script text")
+        service.ignore_recovery(candidates[0]) if candidates else None
+        service.close_project(save=False)
+
+        duplicate = service.duplicate_project(folder, name="Release Check Copy", copy_assets=True)
+        ok = ok and duplicate.project.id != project.project.id
+        lines.append(f"duplicated as {duplicate.project.name}")
+        service.close_project(save=False)
+
+        index = service.index_projects()
+        ok = ok and len(index) >= 2
+        lines.append(f"projects folder holds {len(index)} project(s)")
+
+        service.delete_project(paths.projects_dir / "Release Check Copy", confirm=True)
+        lines.append("deleted the duplicate")
+    except Exception as exc:  # noqa: BLE001 - the check must report, not abort
+        ok = False
+        lines.append(f"raised {exc!r}")
+
+    report.add(Step("Project lifecycle (Stage B)", ok, "\n".join(lines), time.perf_counter() - started))
+
+
+def check_project_cli(report: Report, data_root: Path) -> None:
+    """The command line must reach the same service as the interface."""
+    started = time.perf_counter()
+    env = _child_env()
+    base = [_python(), "-m", "app.cli.main", "--data-root", str(data_root)]
+    created = subprocess.run(
+        [*base, "project", "create", "--name", "CLI Release Check"],
+        capture_output=True, text=True, cwd=str(REPO_ROOT), env=env, timeout=300,
+    )
+    listed = subprocess.run(
+        [*base, "project", "list"], capture_output=True, text=True, cwd=str(REPO_ROOT), env=env, timeout=300,
+    )
+    validated = subprocess.run(
+        [*base, "project", "validate", str(data_root / "projects" / "CLI Release Check")],
+        capture_output=True, text=True, cwd=str(REPO_ROOT), env=env, timeout=300,
+    )
+    ok = created.returncode == 0 and listed.returncode == 0 and validated.returncode == 0
+    detail = "\n".join(
+        line
+        for line in (created.stdout + listed.stdout + validated.stdout).splitlines()
+        if line.strip() and not line.startswith("Log:")
+    )[-1200:]
+    report.add(Step("Project command line", ok, detail, time.perf_counter() - started))
+
+
 def check_pytest(report: Report) -> None:
     started = time.perf_counter()
     completed = subprocess.run(
@@ -335,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
 
     check_system(report, paths)
     check_smoke(report, paths)
+    check_project_lifecycle(report, paths)
+    check_project_cli(report, data_root)
     check_output_naming(report, paths)
 
     if args.skip_gui:

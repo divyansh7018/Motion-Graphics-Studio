@@ -46,24 +46,37 @@ Delivered:
 * cache/temp maintenance with hard safety guarantees
 * diagnostics page with a bounded log tail and one-click copy
 * built-in end-to-end smoke test (10 checks, including a genuine encode)
-* 147 automated tests, including GUI, job-manager and CLI tests
+* 153 automated tests, including GUI, job-manager and CLI tests
 * setup tool (`installer/setup_windows.py`) that verifies rather than assumes
 
 Not in this stage (by design): projects, script, narration, scenes, rendering.
 
 ---
 
-## Stage B — next
+## Stage B — project model and lifecycle (complete)
 
-* one versioned `project.json` per project, read by GUI, CLI, renderer and tests
-* create/open/save/save-as with atomic writes and a backup chain
-* autosave on a timer (configurable) into a separate recovery file
-* crash recovery: on startup, detect a newer recovery file, offer
-  Restore / Ignore / Open backup — and never overwrite good data with bad
-* recent projects, project settings that override application defaults
-* undo/redo for project edits (scene add/delete/reorder, text, timing, assets,
-  theme) with a bounded history
-* tests: serialisation, migration, load of damaged files, recovery, undo/redo
+* one versioned `project.json` (schema v2) per project, read by the GUI, the CLI
+  and the tests through a single `ProjectService`
+* 9-step New Project wizard (name → channel → template → format → resolution →
+  fps → quality → voice → create); the voice step lists only voices discovered
+  from the installed engine
+* dashboard with recent-project cards, project browser with search/sort/filters,
+  project page and an eight-tab Project settings page
+* create / open / save / save-as / duplicate / rename / rename folder / delete,
+  all with atomic writes and a rotating backup chain
+* autosave on a configurable timer into `autosave/`, never into `project.json`;
+  change detection so unchanged projects are not rewritten
+* crash recovery on startup: Restore / Open original / Ignore, decided by
+  content comparison rather than timestamps
+* v1 → v2 migration, and a hard refusal for files from a newer schema
+* validation that collects **every** issue ("3 issues found"), plus a stricter
+  pre-render check for codec/container/quality combinations
+* missing assets reported with name, expected path and Relink / Replace / Ignore
+* external-modification detection with Reload / Keep / Save as
+* advisory project locking that survives a crash (stale locks are removed)
+* undo/redo for project edits with a bounded history
+* CLI: `motion-studio project create|open|info|validate|list|duplicate|rename|recovery`
+* 360 automated tests in total (207 added in this stage)
 
 ---
 

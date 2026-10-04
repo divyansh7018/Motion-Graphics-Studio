@@ -87,9 +87,15 @@ def test_future_pages_are_disabled_not_fake_buttons(window) -> None:
             assert item.toolTip(), "future pages must explain why they are unavailable"
     assert future_labels, "the roadmap entries should be visible"
 
-    # And the File menu entries for later stages are disabled with a tooltip.
-    assert not window.new_project_action.isEnabled()
-    assert "Stage B" in window.new_project_action.toolTip()
+    # Stage B is implemented, so the project actions are live - and the ones
+    # that are not built yet stay disabled with an explanation.
+    assert window.new_project_action.isEnabled()
+    assert window.open_project_action.isEnabled()
+    assert not window.save_project_action.isEnabled(), "saving needs an open project"
+    assert not window.duplicate_project_action.isEnabled()
+
+    disabled = [action for action in window.menuBar().actions()]
+    assert disabled, "the menu bar should exist"
 
 
 def test_system_check_runs_as_a_background_job(window) -> None:

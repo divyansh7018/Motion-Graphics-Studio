@@ -15,14 +15,15 @@ APP_ID = "motion-graphics-studio"
 APP_PUBLISHER = "Motion Graphics Studio"
 
 #: Semantic version of the desktop application itself.
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 #: Development stage currently implemented (see docs/ROADMAP.md).
 #: Stage A = application shell + settings + system check.
-APP_STAGE = "A"
+#: Stage B = project system (project.json, save, autosave, recovery).
+APP_STAGE = "B"
 
 #: Human readable stage label used in the UI.
-APP_STAGE_LABEL = "Stage A - Foundation (shell, settings, system check)"
+APP_STAGE_LABEL = "Stage B - Projects (create, save, autosave, recovery)"
 
 # --------------------------------------------------------------------------
 # On-disk schema versions.  Every persisted format carries its own version so
@@ -30,7 +31,15 @@ APP_STAGE_LABEL = "Stage A - Foundation (shell, settings, system check)"
 # sections 6 and 12).
 # --------------------------------------------------------------------------
 SETTINGS_SCHEMA_VERSION = 1
-PROJECT_SCHEMA_VERSION = 1  # reserved for Stage B (project model)
+#: Project file format version written by this build.
+#:
+#: 1 = the draft shape published in ``docs/PROJECT_FORMAT.md`` during Stage A.
+#: 2 = the implemented shape (top-level ``project``/``format``/``script``/
+#:     ``voice``/``theme``/``audio``/``scenes``/``assets``/``export`` sections).
+#: Older files are migrated by :mod:`app.project.migrations`; newer files are
+#: refused with a clear message instead of being partially read.
+PROJECT_SCHEMA_VERSION = 2
+MIN_SUPPORTED_PROJECT_SCHEMA = 1
 
 #: Minimum Python required by the application.
 MIN_PYTHON = (3, 10)
@@ -46,4 +55,4 @@ def version_string() -> str:
 
 def full_version_string() -> str:
     """Return a longer version string used in logs and the About screen."""
-    return f"{APP_NAME} {APP_VERSION} - stage {APP_STAGE} - schema {SETTINGS_SCHEMA_VERSION}"
+    return f"{APP_NAME} {APP_VERSION} - stage {APP_STAGE} - settings schema {SETTINGS_SCHEMA_VERSION} - project schema {PROJECT_SCHEMA_VERSION}"

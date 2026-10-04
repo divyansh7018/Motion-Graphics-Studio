@@ -92,35 +92,32 @@ Two options:
 
 1. Install them (`apt-get install -y libgl1 libegl1 libxkbcommon-x11-0
    libdbus-1-3`), or
-2. Generate minimal stub libraries, which is enough for the offscreen platform:
+2. Generate stub shared objects with the helper in this repository:
 
 ```bash
-mkdir -p /tmp/stublib && cd /tmp/stublib
-python3 - <<'PY'
-# Collect every symbol the Qt libraries and their plugins need from the missing
-# system libraries, then emit a stub shared object for each.
-import subprocess, glob, re, collections, os
-buckets = collections.defaultdict(set)
-for path in glob.glob(os.path.expanduser("~/.venv/lib/python*/site-packages/PySide6/Qt/lib/*.so*")) + \
-            glob.glob(os.path.expanduser("~/.venv/lib/python*/site-packages/PySide6/Qt/plugins/**/*.so"), recursive=True):
-    for line in subprocess.run(["nm", "-D", "-u", path], capture_output=True, text=True).stdout.splitlines():
-        m = re.search(r"^\s+U\s+(\S+)$", line)
-        if not m: continue
-        sym = m.group(1).split("@")[0]
-        for prefix, soname in (("xkb", "libxkbcommon.so.0"), ("dbus_", "libdbus-1.so.3")):
-            if sym.startswith(prefix): buckets[soname].add(sym)
-for soname, syms in buckets.items():
-    open(f"stub_{soname}.c", "w").write("".join(f"void {s}(void) {{}}\n" for s in sorted(syms)))
-    open(f"stub_{soname}.map", "w").write("STUB_1.0 {\n  global:\n" +
-        "".join(f"    {s};\n" for s in sorted(syms)) + "  local: *;\n};\n")
-    subprocess.run(["gcc", "-shared", "-fPIC", "-o", soname, f"stub_{soname}.c",
-                    f"-Wl,-soname,{soname}", "-Wl,--version-script", f"stub_{soname}.map"], check=True)
-PY
+python scripts/make_qt_stubs.py          # writes /tmp/stublib
 
 export LD_LIBRARY_PATH=/tmp/stublib
 export QT_QPA_PLATFORM=offscreen
 python -m pytest tests -q
 ```
+
+`scripts/make_qt_stubs.py` reads the symbols **and their version nodes**
+straight out of the Qt libraries (`readelf --dyn-syms`, `readelf -V`), so the
+dynamic loader accepts the stubs exactly as it would the real libraries. That
+detail matters: a plain `STUB_1.0 { global: ... }` version script is not enough,
+because Qt asks for versioned symbols such as `xkb_*@V_0.5.0` and
+`dbus_*@LIBDBUS_1_3`. Two other things the helper handles:
+
+* `libGL.so.1` has no `DT_NEEDED` referrer among the Qt libraries (the platform
+  plugins `dlopen` it), so it is found by prefix-matching every Qt library
+  rather than by following dependencies;
+* `readelf --dyn-syms -W` prints each symbol followed by an index such as
+  ` (12)`, which must be stripped before splitting on `@`.
+
+The script loops: it tries `import PySide6.QtWidgets`, reads the missing library
+name out of the `ImportError`, builds that stub, and repeats until the import
+succeeds.
 
 The stubs are a build-container workaround only — they are never shipped and
 never referenced by the application.

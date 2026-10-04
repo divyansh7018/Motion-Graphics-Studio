@@ -79,6 +79,18 @@ real logic on a machine without a display.
 | `app/jobs/worker.py` | Qt runnable that executes a job off the UI thread |
 | `app/jobs/manager.py` | submission, duplicate rejection, cancellation, shutdown |
 | `app/jobs/keys.py` | stable job identifiers |
+| `app/project/presets.py` | every codec/quality/format/template table - the only place they live |
+| `app/project/model.py` | the typed project model: sections, scenes, assets, (de)serialisation |
+| `app/project/migrations.py` | schema detection and the v1 → v2 migration |
+| `app/project/validation.py` | validation that collects every issue, plus the pre-render check |
+| `app/project/layout.py` | the project folder layout and path safety |
+| `app/project/store.py` | load/save, backups, autosave, recovery, rotation |
+| `app/project/lock.py` | advisory project locking (Windows-safe pid probing) |
+| `app/project/recent.py` | the recent-projects list and channel profiles |
+| `app/project/assets.py` | import, verify, relink, replace, ignore, checksum |
+| `app/project/thumbnails.py` | cached previews (Pillow only, never a render) |
+| `app/project/history.py` | bounded undo/redo over project snapshots |
+| `app/project/service.py` | `ProjectService`: the one place projects are created and changed |
 | `app/tools/ffmpeg.py` | FFmpeg/FFprobe discovery, safe subprocess execution |
 | `app/tools/kokoro.py` | Kokoro detection (never loads the model at startup) |
 | `app/checks/status.py` | check framework: statuses, results, report, registry |
@@ -90,7 +102,10 @@ real logic on a machine without a display.
 | `app/ui/notifications.py` | dialogs: friendly errors, confirmations, results |
 | `app/ui/error_handler.py` | global error boundaries (main thread + guarded slots) |
 | `app/ui/single_instance.py` | one instance per data folder |
-| `app/ui/views/*` | pages (welcome, system check, settings, maintenance, diagnostics) |
+| `app/ui/project_controller.py` | Qt glue: dialogs, autosave timer, dirty state - no logic of its own |
+| `app/ui/wizard/new_project.py` | the 9-step New Project wizard |
+| `app/ui/dialogs/project_dialogs.py` | Save/Discard/Cancel, recovery, conflict and missing-asset dialogs |
+| `app/ui/views/*` | pages (dashboard, project, project settings, browser, system check, settings, maintenance, diagnostics) |
 | `app/ui/widgets/*` | shared widgets (cards, rows, job panel) |
 | `app/diagnostics/smoke.py` | end-to-end self-test |
 

@@ -226,6 +226,7 @@ class KeyValueGrid(QWidget):
         self._grid.setVerticalSpacing(METRICS.xs)
         self._grid.setColumnStretch(1, 1)
         self._row = 0
+        self._values: dict[str, QLabel] = {}
 
     def add(self, label: str, value: str, monospace: bool = False) -> None:
         label_widget = QLabel(label)
@@ -237,7 +238,21 @@ class KeyValueGrid(QWidget):
             value_widget.setObjectName("Mono")
         self._grid.addWidget(label_widget, self._row, 0, Qt.AlignTop)
         self._grid.addWidget(value_widget, self._row, 1, Qt.AlignTop)
+        self._values[label] = value_widget
         self._row += 1
+
+    def value(self, label: str) -> str:
+        """The text currently shown for a label (empty when there is none)."""
+        widget = self._values.get(label)
+        return widget.text() if widget is not None else ""
+
+    def set_value(self, label: str, value: str) -> None:
+        """Update one row in place - used when a single value changes."""
+        widget = self._values.get(label)
+        if widget is None:
+            self.add(label, value)
+        else:
+            widget.setText(value)
 
     def clear(self) -> None:
         while self._grid.count():
@@ -245,6 +260,7 @@ class KeyValueGrid(QWidget):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
+        self._values.clear()
         self._row = 0
 
 

@@ -25,8 +25,15 @@ rendering are implemented in later stages (see `docs/ROADMAP.md`).
 | FFmpeg / FFprobe detection and a real encode self-test | ✅ working |
 | Cache and temporary-file cleanup | ✅ working |
 | Built-in end-to-end smoke test | ✅ working |
-| Automated test suite (147 tests) | ✅ passing |
-| Project model, script, voice, scenes, render, QC | ⏳ later stages |
+| Projects: create, open, save, save as, duplicate, rename, delete | ✅ working |
+| Project settings (format, quality, voice, audio, theme, export, assets) | ✅ working |
+| Autosave, backups and crash recovery | ✅ working |
+| Recent projects, dashboard cards and project browser | ✅ working |
+| Missing-asset reporting with relink | ✅ working |
+| Project validation, including a pre-render check | ✅ working |
+| Project command line (`motion-studio project …`) | ✅ working |
+| Automated test suite (360 tests) | ✅ passing |
+| Narration (Kokoro), scenes, preview, render, QC | ⏳ later stages |
 | Licensing, accounts, payments | ❌ not in this build (Phase 2, later) |
 
 Nothing in the interface pretends to work: pages for later stages are shown as
@@ -195,7 +202,8 @@ click away in every error dialog (`Copy details`).
 | `docs/DEVELOPMENT.md` | running, testing and debugging the app |
 | `docs/TESTING.md` | what the test suite covers and how to run it |
 | `docs/STAGE_A_REPORT.md` | evidence that this build meets the Stage A gate |
-| `docs/PROJECT_FORMAT.md` | the versioned project file format (Stage B) |
+| `docs/STAGE_B_REPORT.md` | evidence that this build meets the Stage B gate |
+| `docs/PROJECT_FORMAT.md` | the versioned project file format (schema v2) |
 
 ---
 
