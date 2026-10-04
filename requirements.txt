@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Motion Graphics Studio - core requirements
+#
+# Every dependency below has a stated reason. Anything not needed by the local
+# production workflow is deliberately absent (directive sections 3, 63).
+#
+# Target machine: Windows 10/11, Intel CPU, integrated graphics, no CUDA.
+# ---------------------------------------------------------------------------
+
+# The user interface (main window, pages, dialogs).
+PySide6>=6.6,<7
+
+# Reading, validating and resizing images for scenes and thumbnails.
+Pillow>=10.0
+
+# Audio sample maths (narration measuring, mixing) and image arrays.
+numpy>=1.24
+
+# Writing narration audio to WAV/FLAC and reading it back for validation
+# (used from Stage C onwards).
+soundfile>=0.12
+
+# ---------------------------------------------------------------------------
+# Optional extras - the application works without them, it just does less.
+# Install with:  pip install -r requirements.txt
+# ---------------------------------------------------------------------------
+
+# Live CPU/RAM figures in the status bar (Settings -> General). Without it the
+# application simply shows less information.
+psutil>=5.9
+
+# ---------------------------------------------------------------------------
+# Developer / test only - not required to run the application.
+# Install with:  pip install -r requirements-dev.txt
+# ---------------------------------------------------------------------------

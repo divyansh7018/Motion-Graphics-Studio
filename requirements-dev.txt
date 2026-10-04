@@ -1,0 +1,16 @@
+# ---------------------------------------------------------------------------
+# Motion Graphics Studio - development and test requirements
+#
+# Install with:  pip install -r requirements.txt -r requirements-dev.txt
+# ---------------------------------------------------------------------------
+
+# Test runner.
+pytest>=7.4
+
+# Headless GUI testing: the test suite runs Qt with the "offscreen" platform,
+# so no display is needed on a build machine.
+# (PySide6 is already in requirements.txt.)
+
+# Independent verification of rendered media in tests and diagnostics.
+# Used ONLY by tools/verification scripts, never by the application itself.
+av>=12.0

@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# Motion Graphics Studio - voice engine (Kokoro-82M)
+#
+# This file is separate because the voice engine is a large download and is
+# OPTIONAL: the application installs, starts and works without it, and simply
+# reports "voice engine not installed" in the system check (directive sections
+# 15, 21, 62).
+#
+# Install with:   pip install -r requirements-voice.txt
+#
+# On the target machine (Windows, CPU-only) this is the recommended CPU path:
+#   * onnxruntime is much faster than PyTorch on CPU for Kokoro-82M
+#   * torch (CPU build) also works, but is a ~200 MB download
+#
+# Voices are always discovered from the installed model - none are hard-coded
+# (directive section 16).
+# ---------------------------------------------------------------------------
+
+# Kokoro-82M text to speech (loads the model lazily, on first use).
+kokoro>=0.7
+
+# Text to phonemes for Kokoro. Misaki is the recommended G2P for the English
+# voices; espeak-ng data provides a fallback for other languages.
+misaki[en]>=0.7
+
+# CPU inference runtime. Use either this ...
+onnxruntime>=1.17
+
+# ... or PyTorch (CPU build). Both are supported; ONNX Runtime is faster on CPU
+# and needs less disk space, so it is listed here by default.
+# torch>=2.2 --index-url https://download.pytorch.org/whl/cpu
+
+# Audio file writing for the narration tracks.
+soundfile>=0.12

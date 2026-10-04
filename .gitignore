@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# Motion Graphics Studio - version control exclusions
+# ---------------------------------------------------------------------------
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------------------
+# Runtime data directories (see docs/ARCHITECTURE.md "Application Directory
+# System").  These are created next to the application for portable installs,
+# or under %LOCALAPPDATA%\MotionGraphicsStudio when the app directory is read
+# only.  They never contain source code, so they must not be committed.
+# ---------------------------------------------------------------------------
+/config/
+/logs/
+/workspace/
+/cache/
+/previews/
+/output/
+/backups/
+/temp/
+/projects/
+/assets/
+/models/
+# Bundled ffmpeg/ffprobe executables for portable installs (runtime data).
+# Note: a trailing comment on a pattern line is *not* a comment in .gitignore,
+# so comments must always be on their own line.
+/tools/
+/themes/user/
+
+# Local developer scratch space
+/scratch/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
