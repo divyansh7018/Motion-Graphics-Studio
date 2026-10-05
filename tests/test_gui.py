@@ -63,6 +63,54 @@ def test_main_window_builds_with_every_page(window) -> None:
         assert key in window._pages, f"page '{key}' is missing"
 
 
+def test_the_stage_c_pages_are_in_the_window(window) -> None:
+    """Script and Narration are real pages now, not "(later)" placeholders."""
+    for key in ("script", "narration"):
+        assert key in window._pages, f"page '{key}' is missing"
+
+    window.show_page("script")
+    assert window.stack.currentWidget() is window._pages["script"]
+
+    window.show_page("narration")
+    assert window.stack.currentWidget() is window._pages["narration"]
+
+
+def test_opening_the_narration_page_does_not_block_the_ui_thread(window) -> None:
+    """Sections 30 and 32: voice discovery runs on a worker, not on the Qt thread.
+
+    Probing imports ``kokoro`` and an inference runtime, which can take seconds.
+    Navigating to the page must return immediately and leave the scan running in
+    the background.
+    """
+    started = time.monotonic()
+    window.show_page("narration")
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0, f"navigating took {elapsed:.2f}s - the probe is on the UI thread"
+    assert window.narration_page._scan_job_id is not None, "a scan job should have started"
+
+
+def test_a_voice_scan_result_reaches_the_narration_page(window) -> None:
+    """The window dispatches VOICE_SCAN so the panel fills in when it lands.
+
+    Waits on the panel rather than on the job: a fast job can leave the registry
+    before its queued signal is delivered, and the panel is what the user sees.
+    """
+    window.show_page("narration")
+    assert window.narration_page._scan_job_id is not None
+
+    page = window.narration_page
+    assert wait_until(lambda: page.engine_grid.value("Engine") != "", 20.0), \
+        "the voice scan never reached the panel"
+
+    # Whatever the machine has installed, the panel must show a real state.
+    assert page.engine_grid.value("Engine") == "Kokoro 82M (local)"
+    assert page.engine_grid.value("Runtime") != ""
+    assert page.refresh_voices_button.isEnabled() is True
+    # An unscanned or empty catalogue must explain itself, never show a bare list.
+    assert page.engine_hint.text().strip() != ""
+
+
 def test_navigation_switches_pages(window) -> None:
     window.show_page("settings")
     assert window.stack.currentWidget() is window._pages["settings"]
