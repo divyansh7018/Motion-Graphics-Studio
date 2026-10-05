@@ -222,3 +222,99 @@ def test_preview_uses_its_own_job_key(service, paths, settings) -> None:
 
     assert spec.key == JobKeys.VOICE_PREVIEW
     assert spec.key != JobKeys.TTS_NARRATION, "preview must never create a narration job"
+
+
+# --------------------------------------------------------------------------
+# kokoro_init_job - never executed before, the same gap that hid the
+# progress.report crash
+# --------------------------------------------------------------------------
+
+def test_the_init_job_reports_a_missing_engine_as_not_ready(service, paths, settings, monkeypatch) -> None:
+    """Section 4: a probe that cannot initialise must say so, not pretend."""
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(
+        capabilities, "probe_package",
+        lambda name="kokoro": (False, "", "No module named 'kokoro'"),
+    )
+    monkeypatch.setattr(capabilities, "_language_codes_from_engine", lambda: {})
+    context = make_context(service, paths, settings)
+
+    result = tts_jobs.kokoro_init_job(context)
+
+    assert result["ready"] is False
+    assert result["installed"] is False
+    assert result["problems"], "the user must be told what is wrong"
+
+
+def test_the_init_job_loads_and_releases_the_model(service, paths, settings, kokoro_dir, monkeypatch) -> None:
+    """Sections 4 and 51: verify it really initialises, then release it."""
+    from types import SimpleNamespace
+
+    import app.tts.capabilities as capabilities
+
+    model_file = kokoro_dir / "kokoro-82m-v1.0.onnx"
+    monkeypatch.setattr(capabilities, "probe_kokoro", lambda **_kw: SimpleNamespace(
+        ready=True, installed=True, package_version="0.9.4",
+        model=SimpleNamespace(present=True, path=model_file),
+        runtime=SimpleNamespace(name="onnxruntime", version="1.30.0", describe="onnxruntime"),
+        voices=["hf_alpha"], languages=["h"], language_source="engine",
+        phonemizer=["misaki"], missing_phonemizers=[], problems=[],
+        verified=False, headline=lambda: "ready",
+    ))
+
+    released = []
+
+    class _Engine:
+        backend = "onnxruntime"
+
+        def __init__(self, *a, **k):
+            self.loaded = False
+
+        def load(self):
+            self.loaded = True
+
+        def unload(self):
+            released.append(True)
+
+    monkeypatch.setattr(tts_jobs, "build_engine", lambda paths=None, model_path=None: _Engine())
+    context = make_context(service, paths, settings)
+
+    result = tts_jobs.kokoro_init_job(context)
+
+    assert result["ready"] is True
+    assert released, "the model must be released after the check (section 51)"
+    assert context.progress.progress.fraction == pytest.approx(1.0)
+
+
+def test_the_init_job_reports_a_model_that_fails_to_load(service, paths, settings, monkeypatch) -> None:
+    """A model file that will not load is a failure, not a silent success."""
+    from types import SimpleNamespace
+
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(capabilities, "probe_kokoro", lambda **_kw: SimpleNamespace(
+        ready=True, installed=True, package_version="0.9.4",
+        model=SimpleNamespace(present=True, path=paths.kokoro_model_dir / "m.onnx"),
+        runtime=SimpleNamespace(name="onnxruntime", version="1.30.0", describe="onnxruntime"),
+        voices=[], languages=[], language_source="engine",
+        phonemizer=[], missing_phonemizers=[], problems=[],
+        verified=False, headline=lambda: "ready",
+    ))
+
+    class _BrokenEngine:
+        backend = ""
+
+        def load(self):
+            raise RuntimeError("the ONNX file is truncated")
+
+        def unload(self):
+            pass
+
+    monkeypatch.setattr(tts_jobs, "build_engine", lambda paths=None, model_path=None: _BrokenEngine())
+    context = make_context(service, paths, settings)
+
+    result = tts_jobs.kokoro_init_job(context)
+
+    assert result["ready"] is False
+    assert "truncated" in result["error"]

@@ -86,7 +86,9 @@ def kokoro_init_job(context: JobContext) -> dict:
     if not status.ready:
         log_event(Event.KOKORO_INIT_FAILED, "Kokoro is not usable yet",
                   logger=LOGGER, problems=len(status.problems))
-        return {"ready": False, **requirements_summary(status)}
+        # The summary is spread first: it carries its own "ready" key, and
+        # spreading it last would silently overwrite the verdict below.
+        return {**requirements_summary(status), "ready": False}
 
     report_progress(context, 0.6, "Loading the model")
     engine = build_engine(paths, status.model.path)
@@ -98,12 +100,14 @@ def kokoro_init_job(context: JobContext) -> dict:
     except Exception as error:  # noqa: BLE001 - reported to the user
         log_event(Event.KOKORO_INIT_FAILED, "Kokoro failed to initialise",
                   logger=LOGGER, error=str(error))
-        return {"ready": False, "error": str(error), **requirements_summary(status)}
+        # status.ready is still True here - the probe passed, the load did not -
+        # so the explicit verdict must win the merge.
+        return {**requirements_summary(status), "ready": False, "error": str(error)}
     finally:
         engine.unload()
 
     report_progress(context, 1.0, "Kokoro is ready")
-    return {"ready": True, **requirements_summary(status)}
+    return {**requirements_summary(status), "ready": True}
 
 
 # --------------------------------------------------------------------------

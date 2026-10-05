@@ -694,3 +694,119 @@ def test_generate_is_reachable_from_a_real_window(narration_window, kokoro_dir, 
     assert context.jobs.active_count() == 1
     assert wait_until(lambda: context.jobs.active_count() == 0)
     assert (context.projects.layout.root / "audio" / "narration" / "narration_full.wav").is_file()
+
+
+# --------------------------------------------------------------------------
+# The Script page's own import/export handlers
+# --------------------------------------------------------------------------
+
+def test_the_import_handler_loads_a_file_into_the_editor(
+    context, open_project, tmp_path, qapp, monkeypatch, dialogs
+) -> None:
+    """Section 18: import goes through the page, validates, and does not save."""
+    from PySide6.QtWidgets import QFileDialog
+
+    source = tmp_path / "incoming.txt"
+    source.write_text("नमस्ते। Imported text.", encoding="utf-8")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(source), "Scripts")))
+
+    context.projects.service.set_script_text("Original.")
+    page = ScriptPage(context)
+    page._import()
+
+    assert page.editor.toPlainText() == "नमस्ते। Imported text."
+    assert "Imported incoming.txt" in page.status.text()
+    # Nothing is stored until the user presses Apply (section 19).
+    assert context.projects.project.script.source_text == "Original."
+
+
+def test_the_import_handler_refuses_a_binary_file(
+    context, open_project, tmp_path, qapp, monkeypatch, dialogs
+) -> None:
+    """Section 18: a binary file is rejected with an explanation, no crash."""
+    from PySide6.QtWidgets import QFileDialog
+
+    bad = tmp_path / "movie.txt"
+    bad.write_bytes(bytes(range(256)) * 8)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(bad), "Scripts")))
+
+    page = ScriptPage(context)
+    page._import()
+
+    assert any("could not be imported" in text for _kind, text in dialogs), dialogs
+    assert page.editor.toPlainText() == ""
+
+
+def test_the_import_handler_strips_markdown_for_md_files(
+    context, open_project, tmp_path, qapp, monkeypatch, dialogs
+) -> None:
+    from PySide6.QtWidgets import QFileDialog
+
+    source = tmp_path / "notes.md"
+    source.write_text("# Title\n\nSome **bold** words.\n", encoding="utf-8")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(source), "Scripts")))
+
+    page = ScriptPage(context)
+    page._import()
+
+    assert "**bold**" not in page.editor.toPlainText()
+    assert "Some bold words." in page.editor.toPlainText()
+
+
+def test_the_export_handler_writes_the_editor_text(
+    context, open_project, tmp_path, qapp, monkeypatch, dialogs
+) -> None:
+    """Section 19: what is in the editor is what gets written."""
+    from PySide6.QtWidgets import QFileDialog
+
+    target = tmp_path / "out.txt"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "Plain text (*.txt)")))
+
+    context.projects.service.set_script_text("Stored in the project.")
+    page = ScriptPage(context)
+    page.editor.setPlainText("Edited but not yet applied.")
+    page._export()
+
+    assert target.read_text(encoding="utf-8") == "Edited but not yet applied."
+    assert "Exported to" in page.status.text()
+
+
+def test_the_export_handler_converts_to_structured_when_asked(
+    context, open_project, tmp_path, qapp, monkeypatch, dialogs
+) -> None:
+    from PySide6.QtWidgets import QFileDialog
+
+    target = tmp_path / "out.script"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "Structured script (*.script)")))
+
+    page = ScriptPage(context)
+    page.editor.setPlainText("First paragraph.\n\nSecond paragraph.")
+    page._export()
+
+    written = target.read_text(encoding="utf-8")
+    assert "[SCENE 01]" in written
+    assert "First paragraph." in written
+
+
+def test_the_export_handler_reports_a_refused_overwrite(
+    context, open_project, tmp_path, qapp, monkeypatch, dialogs
+) -> None:
+    """Section 19 / global rule: never silently overwrite the user's file."""
+    from PySide6.QtWidgets import QFileDialog
+
+    target = tmp_path / "existing.txt"
+    target.write_text("keep me", encoding="utf-8")
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "Plain text (*.txt)")))
+
+    page = ScriptPage(context)
+    page.editor.setPlainText("Something else.")
+    page._export()
+
+    assert target.read_text(encoding="utf-8") == "keep me"
+    assert any("could not be exported" in text for _kind, text in dialogs), dialogs
