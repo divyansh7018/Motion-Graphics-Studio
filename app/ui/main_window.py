@@ -35,6 +35,7 @@ from ..core import maintenance
 from ..core.env import process_cpu_percent, system_cpu_percent
 from ..core.events import Event
 from ..core.logging_setup import get_logger, log_event
+from ..jobs.keys import JobKeys
 from ..core.version import APP_NAME, APP_STAGE_LABEL, APP_VERSION, version_string
 from ..jobs.manager import JobManager
 from ..jobs.states import JobState
@@ -56,7 +57,9 @@ from .views.welcome import WelcomePage
 from ..core.errors import AppError
 from .views.project_browser import ProjectBrowserPage
 from .views.project_settings import ProjectSettingsPage
+from .views.narration_view import NarrationPage
 from .views.project_view import ProjectPage
+from .views.script_view import ScriptPage
 from .widgets.job_panel import JobProgressWidget
 
 LOGGER = get_logger("main_window")
@@ -67,6 +70,8 @@ PAGES: tuple[tuple[str, str, str, str], ...] = (
     # (key, label, section, status)
     ("welcome", "Dashboard", "Start", "ready"),
     ("project", "Project", "Create", "ready"),
+    ("script", "Script", "Create", "ready"),
+    ("narration", "Narration", "Create", "ready"),
     ("project_settings", "Project settings", "Create", "ready"),
     ("projects", "Projects", "Create", "ready"),
     ("system_check", "System check", "Start", "ready"),
@@ -74,7 +79,6 @@ PAGES: tuple[tuple[str, str, str, str], ...] = (
 
 FUTURE_PAGES: tuple[tuple[str, str, str], ...] = (
     # (label, section, stage note)
-    ("Voice", "Create", "Stage C - Kokoro"),
     ("Visuals", "Create", "Stage H - images"),
     ("Music", "Create", "Stage E - audio"),
     ("Storyboard", "Create", "Stage D - scenes"),
@@ -226,6 +230,8 @@ class MainWindow(QMainWindow):
     def _build_pages(self) -> None:
         self.welcome_page = WelcomePage(self.context)
         self.project_page = ProjectPage(self.context)
+        self.script_page = ScriptPage(self.context)
+        self.narration_page = NarrationPage(self.context)
         self.project_settings_page = ProjectSettingsPage(self.context)
         self.projects_page = ProjectBrowserPage(self.context)
         self.system_check_page = SystemCheckPage(self.context)
@@ -236,6 +242,8 @@ class MainWindow(QMainWindow):
         self._pages: dict[str, QWidget] = {
             "welcome": self.welcome_page,
             "project": self.project_page,
+            "script": self.script_page,
+            "narration": self.narration_page,
             "project_settings": self.project_settings_page,
             "projects": self.projects_page,
             "system_check": self.system_check_page,
@@ -457,6 +465,9 @@ class MainWindow(QMainWindow):
             self.maintenance_page.refresh()
         if str(key) == "project":
             self.project_page.refresh()
+        if str(key) == "narration":
+            # Voice discovery happens when the user gets here, not at start-up.
+            self.narration_page.ensure_catalogue()
         if str(key) == "project_settings":
             self.project_settings_page.refresh()
         if str(key) == "welcome":
@@ -754,6 +765,18 @@ class MainWindow(QMainWindow):
                 self.context.notify(result.value.summary(), 8000)
             elif result.failed and result.error is not None:
                 show_error(self, result.error, "Cleanup failed")
+
+        if result.key == JobKeys.VOICE_SCAN:
+            self.narration_page.on_scan_finished(result)
+
+        if result.key == JobKeys.VOICE_PREVIEW:
+            self.narration_page.on_preview_finished(result)
+
+        if result.key == JobKeys.TTS_NARRATION:
+            self.narration_page.on_narration_finished(result)
+            # The script page shows the narration state too.
+            self.script_page.refresh()
+            self.project_page.refresh()
 
         if result.key == "diagnostics.smoke_test":
             self._show_smoke_result(result)

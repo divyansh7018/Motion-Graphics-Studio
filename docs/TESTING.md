@@ -4,7 +4,7 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 360 tests passing** (Stage A 153 + Stage B 207). See
+**Current status: 560 tests passing** (Stage A 153 + Stage B 208 + Stage C 199). See
 `STAGE_A_REPORT.md` and `STAGE_B_REPORT.md` for the exact runs.
 
 ---
@@ -19,6 +19,12 @@ restart, duplicate-generation and output-validation tests have actually been run
 | Project service | create/open/save/save-as/duplicate/rename/delete/recent | `test_project_service.py` |
 | Integration | real files, real subprocesses, real Qt objects | `test_ffmpeg.py`, `test_maintenance.py`, `test_system_check.py`, `test_job_manager.py`, `test_smoke.py`, `test_cli.py`, `test_project_cli.py` |
 | GUI | the shell and every project page build, navigate, save, stay responsive, close cleanly | `test_gui.py`, `test_project_ui.py` |
+| Script | plain/structured parsing, Unicode, import, export, counts, duration estimates | `test_script.py` |
+| Narration pipeline | preprocessing, cache keys, staleness, WAV validation, cancellation, per-section output | `test_tts.py`, `test_narration.py` |
+| Narration jobs | the real job bodies with the real `ProgressReporter` and `CancelToken` | `test_tts_jobs.py` |
+| Voice / System Check | engine detection, voice + language discovery, filtering, the TTS self-test | `test_checks_voice.py` |
+| Script and Narration pages | every control does something real; nothing claims to work when it cannot | `test_narration_ui.py` |
+| Voice CLI | `script`, `voice` and `narration` commands, exit codes and messages | `test_cli_voice.py` |
 | End-to-end | folders → settings → FFmpeg → real encode → validation → cleanup → jobs → cancel | `app/diagnostics/smoke.py` |
 | Release check | 10 steps on a throw-away data folder, including the project lifecycle | `scripts/release_check.py` |
 | Manual | start, click, watch, close on the real desktop | `docs/STAGE_A_REPORT.md`, `docs/STAGE_B_REPORT.md`, `scripts/stage_b_manual_matrix.py` |
@@ -34,6 +40,10 @@ python -m pytest tests -q --tb=short             # compact failures
 python -m pytest tests/test_gui.py -q            # only the interface
 python -m pytest tests/test_project_ui.py -q     # only the project pages
 python -m pytest tests -q -k project             # everything project related
+
+# the sixteen Stage C manual scenarios, headless, with a printed pass/fail table
+# (--engine real uses the installed Kokoro instead of the test double)
+python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine fake
 
 # the ten Stage B manual scenarios, headless, with a printed pass/fail table
 python scripts/stage_b_manual_matrix.py --data-root /tmp/mgs_matrix
@@ -124,7 +134,7 @@ Later stages add the files named in the directive, in this order:
 | Stage | New test files |
 |---|---|
 | B | `test_project.py` (serialisation, migration, damaged file, recovery, undo/redo) |
-| C | `test_tts.py` (detection, voice discovery, preview, audio validation, failure modes) |
+| C | `test_script.py`, `test_tts.py`, `test_narration.py`, `test_tts_jobs.py`, `test_narration_ui.py`, `test_cli_voice.py`, `test_checks_voice.py` (parsing, Unicode, import/export, detection, voice + language discovery, preview, generation, WAV validation, staleness, cancellation, failure modes) |
 | D | `test_scene.py`, `test_timeline.py` (determinism, responsive layout, text fitting, invalid timelines) |
 | E | `test_audio.py` (mix, ducking, clipping, missing tracks) |
 | F | `test_render.py` (frame streaming, timing from real durations, cancel mid-render, no hidden retries) |

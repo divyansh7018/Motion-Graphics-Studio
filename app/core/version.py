@@ -15,15 +15,15 @@ APP_ID = "motion-graphics-studio"
 APP_PUBLISHER = "Motion Graphics Studio"
 
 #: Semantic version of the desktop application itself.
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 #: Development stage currently implemented (see docs/ROADMAP.md).
 #: Stage A = application shell + settings + system check.
 #: Stage B = project system (project.json, save, autosave, recovery).
-APP_STAGE = "B"
+APP_STAGE = "C"
 
 #: Human readable stage label used in the UI.
-APP_STAGE_LABEL = "Stage B - Projects (create, save, autosave, recovery)"
+APP_STAGE_LABEL = "Stage C - Script, Kokoro narration and voice"
 
 # --------------------------------------------------------------------------
 # On-disk schema versions.  Every persisted format carries its own version so
@@ -38,7 +38,7 @@ SETTINGS_SCHEMA_VERSION = 1
 #:     ``voice``/``theme``/``audio``/``scenes``/``assets``/``export`` sections).
 #: Older files are migrated by :mod:`app.project.migrations`; newer files are
 #: refused with a clear message instead of being partially read.
-PROJECT_SCHEMA_VERSION = 2
+PROJECT_SCHEMA_VERSION = 3
 MIN_SUPPORTED_PROJECT_SCHEMA = 1
 
 #: Minimum Python required by the application.

@@ -509,96 +509,255 @@ def check_packages(context: CheckContext) -> CheckResult:
 # Voice engine
 # --------------------------------------------------------------------------
 
+def _deep_kokoro_status(context: CheckContext):
+    """The deep capability probe, cached on the context for the whole run.
+
+    Section 22: this verifies that the engine can really be initialised, not just
+    that a package imports.  It is cached so the three voice checks share one
+    probe instead of scanning the model folder three times.
+    """
+    from app.tts.capabilities import probe_kokoro
+
+    cached = getattr(context, "tts_status", None)
+    if cached is not None:
+        return cached
+    settings = context.settings
+    configured = getattr(settings.voice, "model_dir", "") or ""
+    model_dir = Path(configured) if configured else Path(context.paths.kokoro_model_dir)
+    status = probe_kokoro(model_dir=model_dir, deep_init_check=context.deep)
+    context.tts_status = status
+    return status
+
+
 @register_check("voice.kokoro", "Kokoro voice engine", "Voice", "Local text-to-speech (Kokoro-82M).")
 def check_kokoro(context: CheckContext) -> CheckResult:
-    settings = context.settings
-    model_dir = Path(settings.voice.model_dir) if settings.voice.model_dir else Path(context.paths.kokoro_model_dir)
-    status = context.kokoro_status
-    if not isinstance(status, kokoro_tools.KokoroStatus):
-        status = kokoro_tools.probe_kokoro(model_dir=model_dir, deep_import_check=False)
-        context.kokoro_status = status
+    """Report the real state of the local Kokoro installation.
 
-    details = status.details()
+    Every component is reported separately - package, runtime, model weights,
+    phonemiser - because "Kokoro is installed" is not the same statement as
+    "Kokoro can speak", and the user needs to know which part is missing.
+    """
+    from app.tts.capabilities import requirements_summary
 
-    if status.fully_configured:
+    status = _deep_kokoro_status(context)
+    details = [
+        f"package: {'installed' if status.installed else 'not installed'}"
+        + (f" ({status.package_version})" if status.package_version else ""),
+        f"runtime: {status.runtime.describe}",
+        f"model: {status.model.describe()}",
+        f"voices on disk: {len(status.voices)}",
+        f"languages: {len(status.languages)} (from {status.language_source})",
+        f"phonemiser: {', '.join(status.phonemizer) if status.phonemizer else 'none found'}",
+    ]
+    if status.verified:
+        details.append("initialisation: verified by loading the model")
+    elif status.import_error:
+        details.append(f"import error: {status.import_error}")
+
+    if status.ready:
         return CheckResult(
             check_id="voice.kokoro",
             title="Kokoro voice engine",
-            status=Status.READY,
+            status=Status.READY if status.verified else Status.WARNING,
             summary=status.headline(),
+            why="" if status.verified else (
+                "Everything needed is present, but the model has not been loaded "
+                "in this run. Press 'Re-check system' to load it and verify."
+            ),
             details=details,
+            technical=str(requirements_summary(status)),
             required_for="Voice",
         )
-    if status.usable:
-        return CheckResult(
-            check_id="voice.kokoro",
-            title="Kokoro voice engine",
-            status=Status.READY,
-            summary=status.headline(),
-            details=details,
-            required_for="Voice",
-        )
-    if not status.package.installed:
-        return CheckResult(
-            check_id="voice.kokoro",
-            title="Kokoro voice engine",
-            status=Status.OPTIONAL,
-            summary="Not installed (needed for narration, Stage C)",
-            what_happened="The Kokoro voice engine is not installed on this computer.",
-            why="Narration is optional: projects can still be built, previewed and rendered without a voice.",
-            actions=kokoro_tools.install_instructions(),
-            details=details,
-            required_for="Voice",
-        )
-    # Installed but not usable: a runtime is missing.
+
     return CheckResult(
         check_id="voice.kokoro",
         title="Kokoro voice engine",
-        status=Status.WARNING,
+        status=Status.OPTIONAL if not status.installed else Status.WARNING,
         summary=status.headline(),
-        what_happened="Kokoro is installed, but a component it needs is missing.",
-        why="Without a runtime (PyTorch or ONNX Runtime) or a phonemiser, speech cannot be generated.",
-        actions=tuple(status.notes) or kokoro_tools.install_instructions(),
+        what_happened="; ".join(status.problems) or "Kokoro is not ready.",
+        why=(
+            "Narration is optional: a project can still be written, organised and "
+            "saved without a voice. Everything else in the application works."
+        ),
+        actions=tuple(status.instructions) or kokoro_tools.install_instructions(),
         details=details,
-        technical=status.error,
+        technical=status.verification_error or status.import_error,
         required_for="Voice",
     )
 
 
 @register_check("voice.voices", "Installed voices", "Voice", "Voice catalogue discovered from the installed Kokoro model.")
 def check_voices(context: CheckContext) -> CheckResult:
-    """Stage C fills this in from the real voice catalogue.
+    """Report the voices discovered on disk - never a hard-coded list."""
+    from app.tts.voices import discover_voices
 
-    Until the engine can be loaded, the check reports honestly that the voice
-    list is not available yet instead of inventing voice names (section 54/62).
-    """
-    status = context.kokoro_status
-    if not isinstance(status, kokoro_tools.KokoroStatus) or not status.usable:
+    status = _deep_kokoro_status(context)
+    catalogue = discover_voices(status=status)
+
+    if catalogue.count == 0:
         return CheckResult(
             check_id="voice.voices",
             title="Installed voices",
             status=Status.OPTIONAL,
-            summary="Available once the Kokoro engine is installed",
+            summary=catalogue.reason or "No voices were discovered.",
             why="Voice names always come from the installed model - none are hard-coded.",
-            actions=("Install the Kokoro engine (see the item above), then press 'Re-check system'.",),
+            actions=(
+                "Install Kokoro and place the model and voice files in the models folder.",
+                "Then press 'Re-check system'.",
+            ),
             required_for="Voice",
         )
-    if status.voices_found:
-        return CheckResult(
-            check_id="voice.voices",
-            title="Installed voices",
-            status=Status.READY,
-            summary=f"{status.voices_found} voices available ({status.voices_source or 'from the model'})",
-            required_for="Voice",
-        )
+
+    blocker = catalogue.blocker()
+    details = [catalogue.describe()]
+    for voice in catalogue.voices[:12]:
+        details.append(f"{voice.id} · {voice.language or '?'} · {voice.gender}")
+    if catalogue.count > 12:
+        details.append(f"… and {catalogue.count - 12} more")
+
     return CheckResult(
         check_id="voice.voices",
         title="Installed voices",
-        status=Status.WARNING,
-        summary="The voice list is not available yet",
-        what_happened="Kokoro is installed but no voices could be listed.",
-        why="The voice catalogue is part of the model package and is read the first time the voice page is opened.",
-        actions=("Open the Voice page and press Refresh; the voices will be listed from the installed model.",),
+        status=Status.READY if not blocker else Status.WARNING,
+        summary=catalogue.describe(),
+        what_happened=blocker,
+        why="" if not blocker else (
+            "The voice files were found, but the engine cannot use them yet."
+        ),
+        actions=() if not blocker else tuple(status.instructions),
+        details=details,
+        required_for="Voice",
+    )
+
+
+@register_check("voice.languages", "Narration languages", "Voice", "Languages the installed pipeline actually supports.")
+def check_languages(context: CheckContext) -> CheckResult:
+    """Report the language catalogue, and where it came from (section 33).
+
+    The list is read from the installed engine or derived from the discovered
+    voice identifiers; it is never a fixed table in this file.
+    """
+    from app.tts.voices import language_label
+
+    status = _deep_kokoro_status(context)
+
+    if not status.languages:
+        return CheckResult(
+            check_id="voice.languages",
+            title="Narration languages",
+            status=Status.OPTIONAL,
+            summary="Available once the Kokoro model is installed",
+            why="Only languages the installed pipeline supports are ever offered.",
+            actions=("Install Kokoro and its model, then press 'Re-check system'.",),
+            required_for="Voice",
+        )
+
+    labels = ", ".join(f"{language_label(code)} ({code})" for code in status.languages)
+    return CheckResult(
+        check_id="voice.languages",
+        title="Narration languages",
+        status=Status.READY,
+        summary=f"{len(status.languages)} languages (detected from {status.language_source})",
+        details=[labels],
+        required_for="Voice",
+    )
+
+
+@register_check("voice.selftest", "Narration self-test", "Voice", "Generates one short sentence to prove the pipeline works.")
+def check_tts_selftest(context: CheckContext) -> CheckResult:
+    """Run a real, tiny generation (directive section 50).
+
+    Only on a manual re-check: generating audio takes seconds and must not slow
+    down the automatic startup check.  The audio is written to the application's
+    preview folder and deleted afterwards, so nothing is left behind.
+    """
+    from app.tts.capabilities import SELF_TEST_TEXT
+    from app.tts.audio import write_wav
+    from app.tts.engine import GenerationRequest, KokoroEngine
+
+    if not context.deep:
+        return CheckResult(
+            check_id="voice.selftest",
+            title="Narration self-test",
+            status=Status.UNKNOWN,
+            summary="Runs when you press 'Re-check system'",
+            why="The self-test really generates audio, so it is not run on startup.",
+            skipped=True,
+            required_for="Voice",
+        )
+
+    status = _deep_kokoro_status(context)
+    if not status.ready:
+        return CheckResult(
+            check_id="voice.selftest",
+            title="Narration self-test",
+            status=Status.OPTIONAL,
+            summary="Skipped: Kokoro is not ready",
+            what_happened=status.headline(),
+            why="The self-test speaks a real sentence, which needs a working engine.",
+            actions=tuple(status.instructions),
+            required_for="Voice",
+        )
+
+    if not status.voices:
+        return CheckResult(
+            check_id="voice.selftest",
+            title="Narration self-test",
+            status=Status.WARNING,
+            summary="No voice available to speak with",
+            actions=("Place the Kokoro voice files next to the model weights.",),
+            required_for="Voice",
+        )
+
+    target = Path(context.paths.previews_dir) / "system_check_selftest.wav"
+    engine = KokoroEngine(model_path=status.model.path, runtime=status.runtime.name or None)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        result = engine.synthesize(GenerationRequest(text=SELF_TEST_TEXT, voice=status.voices[0]))
+        info = write_wav(target, result.samples, result.sample_rate)
+    except Exception as error:  # noqa: BLE001 - the whole point is to report it
+        return CheckResult(
+            check_id="voice.selftest",
+            title="Narration self-test",
+            status=Status.WARNING,
+            summary="The self-test could not generate audio",
+            what_happened=str(error),
+            why="The engine loaded but produced no usable audio.",
+            actions=(
+                "Try a different voice from the Voice page.",
+                "Check the model files are complete, then re-check.",
+            ),
+            technical=f"{type(error).__name__}: {error}",
+            required_for="Voice",
+        )
+    finally:
+        engine.unload()
+
+    if not info.valid:
+        return CheckResult(
+            check_id="voice.selftest",
+            title="Narration self-test",
+            status=Status.WARNING,
+            summary="The generated test audio is not valid",
+            what_happened="; ".join(info.problems),
+            actions=("Run the self-test again; if it repeats, reinstall the Kokoro model.",),
+            required_for="Voice",
+        )
+
+    summary = (
+        f"Spoke “{SELF_TEST_TEXT}” as {info.duration_label()} of "
+        f"{info.sample_rate} Hz audio with voice {status.voices[0]}."
+    )
+    try:
+        target.unlink()
+    except OSError:
+        pass
+    return CheckResult(
+        check_id="voice.selftest",
+        title="Narration self-test",
+        status=Status.READY,
+        summary=summary,
+        details=["The test file was deleted after validation."],
         required_for="Voice",
     )
 

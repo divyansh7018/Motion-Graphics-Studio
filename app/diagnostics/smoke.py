@@ -156,7 +156,7 @@ def run_smoke_test(
 
     logger = logging_setup.get_logger("smoke")
     logging_setup.log_event(Event.SYSTEM_CHECK_START, "Smoke test started", logger=logger)
-    recorder.set_total(10)
+    recorder.set_total(11)
 
     # -- 1. folders --------------------------------------------------------
     def step_folders() -> tuple[bool, str, list[Path]]:
@@ -386,6 +386,107 @@ def run_smoke_test(
         return True, "cancellation stops the job and reports CANCELLED", []
 
     recorder.run("Cancellation reaches a terminal state", step_cancel)
+
+    # -- 11. Stage C: script -> Kokoro -> WAV -> project -------------------
+    from ..tts.capabilities import probe_kokoro as _probe_kokoro
+    from ..tts.voices import discover_voices as _discover_voices
+
+    _kokoro_status = _probe_kokoro(model_dir=Path(paths.kokoro_model_dir))
+    _kokoro_voices = _discover_voices(status=_kokoro_status)
+    _kokoro_missing = (
+        f"Kokoro is not ready: {_kokoro_status.headline()}"
+        if not _kokoro_status.ready
+        else (f"no usable voice was discovered ({_kokoro_voices.blocker()})"
+              if not _kokoro_voices.available else "")
+    )
+
+    def step_narration() -> tuple[bool, str, list[Path]]:
+        """The whole Stage C workflow on a real project called StageC_Test.
+
+        Skipped - never passed - when Kokoro is not installed, so the report
+        cannot claim narration works on a machine where it cannot (section 60).
+        """
+        from ..project.service import CreateRequest, ProjectService
+        from ..tts.narration import (
+            NarrationSettings,
+            generate_narration,
+            resolve_audio_path,
+        )
+        from ..tts.preprocess import PreprocessOptions
+
+        status = _kokoro_status
+        catalogue = _kokoro_voices
+        voice = catalogue.available[0]
+
+        project_dir = scratch / "StageC_Test"
+        service = ProjectService(paths, settings)
+        try:
+            project = service.create_project(
+                CreateRequest(name="StageC_Test", folder=project_dir)
+            )
+            service.set_script_text("Hello. This is a local narration test.")
+            voice = catalogue.available[0]
+
+            options = PreprocessOptions()
+            narration = NarrationSettings(
+                voice=voice.id,
+                language=voice.language,
+                model_version=status.model.path.name if status.model.path else "",
+                preprocessing={
+                    key: getattr(options, key) for key in (
+                        "collapse_spaces", "normalize_newlines", "normalize_typography",
+                        "strip_markdown", "expand_numbers", "paragraph_pauses",
+                    )
+                },
+                preprocess_options=options,
+            )
+            outcome = generate_narration(project, service.current_layout.root, narration)
+            if not outcome.ok:
+                friendly = outcome.error
+                return False, f"generation failed: {friendly.title if friendly else outcome.status}", []
+
+            track = outcome.tracks[0]
+            if track.actual_duration_seconds <= 0:
+                return False, "the generated audio has no measurable duration", []
+            if not service.save().ok:
+                return False, "the project could not be saved after generating", []
+            folder = service.current_layout.root
+            audio = resolve_audio_path(folder, track.path)
+        finally:
+            service.close_project()
+
+        # Reopen from disk: this is the part that proves persistence.
+        reopened_service = ProjectService(paths, settings)
+        try:
+            reopened = reopened_service.open_project(folder)
+            reopened_service.refresh_narration_statuses()
+            stored = reopened.narration.tracks[0] if reopened.narration.tracks else None
+            problems = []
+            if stored is None:
+                problems.append("no narration track was stored")
+            else:
+                if stored.actual_duration_seconds <= 0:
+                    problems.append("the stored duration is zero")
+                if not stored.voice:
+                    problems.append("the stored voice is empty")
+                if reopened.narration.status != "ready":
+                    problems.append(f"the reopened status is {reopened.narration.status}")
+            if not audio.is_file():
+                problems.append("the narration file is gone")
+            if problems:
+                return False, "; ".join(problems), [audio]
+            return True, (
+                f"voice {stored.voice}, {stored.actual_duration_seconds:.2f}s of audio at "
+                f"{stored.sample_rate} Hz, status {reopened.narration.status} after reopening\n"
+                f"file: {audio}"
+            ), [audio]
+        finally:
+            reopened_service.close_project()
+
+    if _kokoro_missing:
+        recorder.skip("Stage C: script to narration to reopened project", _kokoro_missing)
+    else:
+        recorder.run("Stage C: script to narration to reopened project", step_narration)
 
     # -- finish ------------------------------------------------------------
     artifacts = [path for path in recorder.artifacts if path.exists()]

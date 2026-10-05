@@ -51,17 +51,18 @@ them without touching anything that cannot be rebuilt.
 
 ```json
 {
-  "schema_version": 2,
-  "application_version": "0.2.0",
-  "project": { ... },
-  "format":  { ... },
-  "script":  { ... },
-  "voice":   { ... },
-  "theme":   { ... },
-  "audio":   { ... },
-  "scenes":  [ ... ],
-  "assets":  [ ... ],
-  "export":  { ... }
+  "schema_version": 3,
+  "application_version": "0.3.0",
+  "project":    { ... },
+  "format":     { ... },
+  "script":     { ... },
+  "voice":      { ... },
+  "theme":      { ... },
+  "audio":      { ... },
+  "narration":  { ... },
+  "scenes":     [ ... ],
+  "assets":     [ ... ],
+  "export":     { ... }
 }
 ```
 
@@ -240,20 +241,94 @@ array - Stage B never creates placeholder scenes, narration or media.
 overwritten: the sequence number increases until the name is free
 (`overwrite_policy` is always `"never"`).
 
+### 3.10 `narration` (added in v3)
+
+Generated narration audio is described here, never implied by a boolean.
+
+```json
+{
+  "enabled": true,
+  "mode": "full_script",
+  "output_dir": "audio/narration",
+  "status": "ready",
+  "last_generated_at": "2026-10-05T06:27:34Z",
+  "last_error": "",
+  "section_gap_seconds": 0.0,
+  "preprocessing": {
+    "collapse_spaces": true,
+    "normalize_newlines": true,
+    "normalize_typography": true,
+    "strip_markdown": false,
+    "expand_numbers": false,
+    "paragraph_pauses": true
+  },
+  "tracks": [
+    {
+      "id": "track-full",
+      "kind": "full",
+      "section_id": "",
+      "path": "audio/narration/narration_full.wav",
+      "status": "ready",
+      "source_hash": "46a7d125d51c7cf8",
+      "settings_hash": "65bd99373f1a4380",
+      "estimated_duration_seconds": 4.8,
+      "actual_duration_seconds": 4.214,
+      "sample_rate": 24000,
+      "channels": 1,
+      "size_bytes": 202328,
+      "voice": "hf_alpha",
+      "language": "hi",
+      "speed": 1.0,
+      "volume": 1.0,
+      "engine": "kokoro",
+      "model_version": "kokoro-82m-v1.0",
+      "generated_at": "2026-10-05T06:27:34Z",
+      "message": ""
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `mode` | `full_script`, `section_scene` or `selected_preview` |
+| `status` | one of `not_generated`, `generating`, `ready`, `stale`, `failed`, `cancelled`, `missing` |
+| `tracks[].path` | project-relative, so the project can be moved or copied |
+| `tracks[].actual_duration_seconds` | measured from the written WAV; **authoritative** for later stages |
+| `tracks[].estimated_duration_seconds` | word-count estimate, labelled as such in the UI |
+| `tracks[].source_hash` | hash of the script text that produced the audio |
+| `tracks[].settings_hash` | hash of voice, language, speed, volume, sample rate, model version and preprocessing |
+
+**Staleness.** On load and on refresh, each track's two hashes are recomputed
+from the current script and settings. A mismatch sets `status` to `stale` and the
+UI offers Regenerate; audio is never silently reused. The hashes are only
+comparable because the generation records every input it used back into the
+project (`voice.*`, `narration.preprocessing`) - see `docs/STAGE_C_REPORT.md`.
+
+**Missing files.** A `tracks[].path` that no longer exists sets that track to
+`missing` with the message "Generated narration file is missing." plus a
+Regenerate / Relink / Ignore choice. Nothing is deleted and the project still
+opens.
+
 ---
 
 ## 4. Versioning and migration
 
 | Situation | Behaviour |
 |---|---|
-| `schema_version == 2` | opened directly |
-| `schema_version == 1` | migrated by `migrate_project_data()`, logged as `PROJECT_MIGRATION`, then validated again |
-| `schema_version > 2` | **refused** with `ProjectVersionError`: "created by a newer version" |
+| `schema_version == 3` | opened directly |
+| `schema_version == 2` | migrated by `migrate_project_data()`, logged as `PROJECT_MIGRATION`, then validated again |
+| `schema_version == 1` | migrated through v2, then validated again |
+| `schema_version > 3` | **refused** with `ProjectVersionError`: "created by a newer version" |
 | missing `schema_version` | treated as v1 and migrated |
 | unparsable JSON | not opened; the damaged file is copied to `backups/*.corrupt-<stamp>` and a friendly error is shown |
 
 The v1 → v2 step moves the flat v1 keys into the section layout, fills defaults
 for the new sections and keeps anything unrecognised in `extra`.
+
+The v2 → v3 step adds the `narration` section (see 3.8) and leaves every other
+section untouched. Existing v2 projects open unchanged and are written back as
+v3 on the next save.
 
 `application_version` records which build wrote the file. It is informational;
 compatibility is decided by `schema_version` alone.

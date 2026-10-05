@@ -261,6 +261,45 @@ def _v1_to_v2(data: dict) -> dict:
     return out
 
 
+@register_migration(2, "Stage B project -> Stage C narration section")
+def _v2_to_v3(data: dict) -> dict:
+    """Add the Stage C narration section without touching anything else.
+
+    Stage B stored narration *choices* in ``voice`` and a single
+    ``audio.narration_enabled`` flag.  Stage C also needs to record what was
+    actually *generated* - file, measured duration, voice, model, status - so a
+    new ``narration`` section is added and seeded from what the old file knew:
+
+    * ``voice.*`` is left exactly as it was (the user's choices are preserved).
+    * ``audio.narration_enabled`` seeds ``narration.enabled``.
+    * No narration file is invented.  A v2 project has never generated audio in
+      this format, so the status starts at ``not_generated`` and the track list
+      stays empty - nothing is claimed that did not happen.
+    """
+    out = dict(data)
+    audio = out.get("audio") if isinstance(out.get("audio"), dict) else {}
+    existing = out.get("narration") if isinstance(out.get("narration"), dict) else {}
+
+    narration: dict = {
+        "enabled": bool(existing.get("enabled", audio.get("narration_enabled", True))),
+        "mode": str(existing.get("mode", "full_script")),
+        "output_dir": str(existing.get("output_dir", "audio/narration")),
+        "tracks": list(existing.get("tracks") or []),
+        "status": str(existing.get("status", "not_generated")),
+        "last_generated_at": str(existing.get("last_generated_at", "")),
+        "last_error": str(existing.get("last_error", "")),
+        "preprocessing": dict(existing.get("preprocessing") or {}),
+        "section_gap_seconds": float(existing.get("section_gap_seconds", 0.0) or 0.0),
+    }
+    # Keep unknown keys a newer build may have written into the section.
+    for key, value in existing.items():
+        narration.setdefault(key, value)
+
+    out["narration"] = narration
+    out["schema_version"] = 3
+    return out
+
+
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------

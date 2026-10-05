@@ -12,6 +12,9 @@ Commands
 ``clean``      remove cached/temporary files (``--all`` for everything)
 ``smoke-test`` run the Stage A end-to-end smoke test
 ``project``    create, open, validate, list, duplicate, rename, recover projects
+``script``     show, import, export and convert a project script
+``voice``      list voices, check the Kokoro engine, preview a voice
+``narration``  generate narration audio and report its state
 ``gui``        start the graphical application (same as the normal launcher)
 
 The ``project`` commands share :class:`app.project.service.ProjectService` with
@@ -223,8 +226,10 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser.set_defaults(func=command_smoke_test)
 
     from .project import build_project_parser
+    from .voice import build_voice_parsers
 
     build_project_parser(subparsers)
+    build_voice_parsers(subparsers)
 
     gui_parser = subparsers.add_parser("gui", help="Start the graphical application.")
     gui_parser.set_defaults(func=command_gui)
@@ -244,6 +249,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if getattr(args, "command", None) == "project":
             return _dispatch_project(args)
+        if getattr(args, "command", None) in ("script", "voice", "narration"):
+            return _dispatch_voice(args)
         return int(args.func(args))
     except PathResolutionError as exc:
         print(f"The application folders could not be prepared:\n{exc}")
@@ -273,6 +280,17 @@ def _dispatch_project(args) -> int:
     if getattr(args, "project_command", None):
         _print_header(paths)
     return run_project_command(args, paths, load_result.settings)
+
+
+def _dispatch_voice(args) -> int:
+    """Run a ``script``, ``voice`` or ``narration`` subcommand."""
+    from .voice import run_script_command
+
+    paths, load_result = _bootstrap(args)
+    if getattr(args, "script_command", None) or getattr(args, "voice_command", None) \
+            or getattr(args, "narration_command", None):
+        _print_header(paths)
+    return run_script_command(args, paths, load_result.settings)
 
 
 def run() -> None:

@@ -56,6 +56,46 @@ Notifier = Callable[[str, dict], None]
 # --------------------------------------------------------------------------
 
 @dataclass
+class ScriptImportResult:
+    """What a script import produced."""
+
+    ok: bool = False
+    text: str = ""
+    encoding: str = ""
+    error: str = ""
+    notes: list = field(default_factory=list)
+
+
+@dataclass
+class ScriptExportResult:
+    """What a script export produced."""
+
+    ok: bool = False
+    path: Optional[Path] = None
+    bytes_written: int = 0
+    error: str = ""
+
+
+def _recorded_model_version(project: Project) -> str:
+    """The model version recorded on the newest narration track, if any."""
+    newest = max(
+        (track for track in project.narration.tracks if track.model_version),
+        key=lambda track: track.generated_at or "",
+        default=None,
+    )
+    return newest.model_version if newest is not None else ""
+
+
+@dataclass
+class NarrationSettingsSnapshot:
+    """The narration choices stored in the project, plus its current state."""
+
+    settings: object = None
+    status: str = "not_generated"
+    mode: str = "full_script"
+
+
+@dataclass
 class CreateRequest:
     """Everything the New Project wizard collects."""
 
@@ -456,6 +496,125 @@ class ProjectService:
             project.script.recompute_estimate()
 
         return self.edit("Edit script", apply)
+
+    # -- script import / export (Stage C, sections 18-19) -------------------
+
+    def import_script_file(self, path: Path) -> "ScriptImportResult":
+        """Read a script file into the project.
+
+        The text is stored **exactly as written**; nothing is reformatted and the
+        original file is never touched (sections 12 and 19).
+        """
+        from app.script.io import import_script
+
+        result = import_script(Path(path))
+        if not result.ok:
+            return ScriptImportResult(ok=False, error=result.error or "The file could not be read.")
+        self.set_script_text(result.text)
+        return ScriptImportResult(
+            ok=True,
+            text=result.text,
+            encoding=result.encoding,
+            notes=list(result.notes),
+        )
+
+    def export_script_file(self, path: Path, *, target: str = "txt", title: str = "") -> "ScriptExportResult":
+        """Write the current script out.  An existing file is never replaced."""
+        from app.script.io import export_script
+
+        session = self._require_session()
+        result = export_script(Path(path), session.project.script.source_text,
+                               target=target, title=title or session.project.project.name)
+        return ScriptExportResult(ok=result.ok, path=result.path,
+                                  bytes_written=result.bytes_written, error=result.error)
+
+    # -- narration (Stage C, sections 24-27, 41-43) ------------------------
+
+    def set_voice_settings(self, *,
+                           voice: Optional[str] = None,
+                           language: Optional[str] = None,
+                           gender: Optional[str] = None,
+                           speed: Optional[float] = None,
+                           volume: Optional[float] = None) -> Project:
+        """Store the user's narration choices (one undoable edit)."""
+        def apply(project: Project) -> None:
+            if voice is not None:
+                project.voice.voice = voice
+            if language is not None:
+                project.voice.language = language
+            if gender is not None:
+                project.voice.gender = gender
+            if speed is not None:
+                project.voice.speed = float(speed)
+            if volume is not None:
+                project.voice.volume = float(volume)
+
+        return self.edit("Change narration voice settings", apply)
+
+    def set_narration_mode(self, mode: str) -> Project:
+        """Switch between full-script and per-section narration."""
+        from .model import NARRATION_MODES
+
+        if mode not in NARRATION_MODES:
+            raise ProjectError(f"Unknown narration mode '{mode}'.")
+
+        def apply(project: Project) -> None:
+            project.narration.mode = mode
+
+        return self.edit("Change narration mode", apply)
+
+    def narration_settings(self, model_version: str = "") -> "NarrationSettingsSnapshot":
+        """The stored narration choices, for the interface and for staleness.
+
+        ``model_version`` matters for staleness: the hash recorded on a track
+        includes the model that produced it.  Callers that have probed the engine
+        pass the version they found; without one this falls back to the version
+        recorded on the newest track, i.e. "assume the model did not change".
+        Passing an empty string instead would make every track look stale.
+        """
+        from app.tts.narration import NarrationSettings
+
+        session = self._require_session()
+        project = session.project
+        resolved_model = (model_version or "").strip() or _recorded_model_version(project)
+        return NarrationSettingsSnapshot(
+            settings=NarrationSettings(
+                voice=project.voice.voice,
+                language=project.voice.language,
+                speed=float(project.voice.speed or 1.0),
+                volume=float(project.voice.volume or 1.0),
+                sample_rate=int(project.voice.sample_rate or 24000),
+                model_version=resolved_model,
+                preprocessing=dict(project.narration.preprocessing or {}),
+            ),
+            status=project.narration.status,
+            mode=project.narration.mode,
+        )
+
+    def refresh_narration_statuses(self, model_version: str = "") -> list[str]:
+        """Re-check narration files and staleness.  Never generates or deletes."""
+        from app.tts.narration import refresh_statuses
+
+        session = self._require_session()
+        snapshot = self.narration_settings(model_version=model_version)
+        notes = refresh_statuses(session.project, session.layout.root, snapshot.settings)
+        session.project.narration.recompute_status()
+        if notes:
+            self._notify(Event.USER_ACTION,
+                         message="Narration statuses rechecked",
+                         project=session.name, notes=len(notes))
+        return notes
+
+    def mark_narration_generating(self) -> None:
+        """Flag the narration as in progress so the UI cannot lie about it."""
+        session = self._require_session()
+        session.project.narration.status = "generating"
+
+    def apply_narration_result(self, project_after_generation: Project) -> None:
+        """Copy the generated narration section back into the open session."""
+        session = self._require_session()
+        session.project.narration = project_after_generation.narration
+        session.project.touch()
 
     def add_scene(self, scene_type: str = "blank", name: str = "") -> SceneSpec:
         self._require_session()

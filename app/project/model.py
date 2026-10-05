@@ -23,7 +23,7 @@ import re
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Optional
 
 from ..core.version import APP_VERSION, PROJECT_SCHEMA_VERSION
@@ -45,6 +45,38 @@ SCRIPT_FILENAME = "script.txt"
 SCENE_TYPES: tuple[str, ...] = ("blank", "title", "text", "image", "number", "cta", "video", "graphic")
 
 ASSET_KINDS: tuple[str, ...] = ("image", "video", "audio", "font", "logo", "svg", "other")
+
+#: Narration states (directive section 43).  Never a boolean: "generated" is not
+#: enough information when the file can be missing, stale or cancelled.
+NARRATION_STATUSES: tuple[str, ...] = (
+    "not_generated", "generating", "ready", "stale", "failed", "cancelled", "missing",
+)
+
+NARRATION_STATUS_LABELS: dict[str, str] = {
+    "not_generated": "Not generated yet",
+    "generating": "Generating…",
+    "ready": "Ready",
+    "stale": "Out of date",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "missing": "File missing",
+}
+
+#: How narration is generated (directive section 24).
+NARRATION_MODES: tuple[str, ...] = ("full_script", "section_scene", "selected_preview")
+
+NARRATION_MODE_LABELS: dict[str, str] = {
+    "full_script": "Full script as one file",
+    "section_scene": "One file per scene or section",
+    "selected_preview": "Selected text only (preview)",
+}
+
+#: Narration audio lives here, relative to the project folder.
+NARRATION_SUBDIR = "audio/narration"
+
+#: Deterministic file names (directive section 26) - never UUID-only names.
+NARRATION_FULL_FILENAME = "narration_full.wav"
+NARRATION_SCENE_TEMPLATE = "narration_scene_{index:03d}.wav"
 
 TRANSITION_TYPES: tuple[str, ...] = ("none", "fade", "cut", "slide", "zoom")
 
@@ -355,6 +387,147 @@ class VoiceSpec(_Section):
 
 
 # --------------------------------------------------------------------------
+# Narration (Stage C)
+# --------------------------------------------------------------------------
+
+@dataclass
+class NarrationTrack(_Section):
+    """One generated narration file and everything known about it.
+
+    The file itself is never the source of truth for its metadata: the measured
+    facts are stored here so the project can be inspected without decoding audio,
+    and ``actual_duration_seconds`` (measured from the WAV) always wins over
+    ``estimated_duration_seconds`` for anything downstream (directive 40).
+    """
+
+    id: str = ""
+    #: "full" for the whole script, "section" for one scene/section.
+    kind: str = "full"
+    #: The script section this track was generated from ("" for the full script).
+    section_id: str = ""
+    #: Path relative to the project folder, e.g. "audio/narration/narration_full.wav".
+    path: str = ""
+    status: str = "not_generated"
+    #: What was spoken, hashed - the basis of staleness detection (section 42).
+    source_hash: str = ""
+    #: Hash of voice/language/speed/volume/preprocessing used to generate it.
+    settings_hash: str = ""
+    estimated_duration_seconds: float = 0.0
+    #: Measured from the written WAV.  Authoritative once present.
+    actual_duration_seconds: float = 0.0
+    sample_rate: int = 0
+    channels: int = 0
+    size_bytes: int = 0
+    voice: str = ""
+    language: str = ""
+    speed: float = 1.0
+    volume: float = 1.0
+    engine: str = "kokoro"
+    model_version: str = ""
+    generated_at: str = ""
+    #: Plain-language reason when the status is failed/cancelled/missing.
+    message: str = ""
+    extra: dict = field(default_factory=dict)
+
+    @property
+    def filename(self) -> str:
+        return PurePosixPath(self.path).name if self.path else ""
+
+    def duration_seconds(self) -> float:
+        """Measured duration when known, otherwise the estimate."""
+        if self.actual_duration_seconds > 0:
+            return float(self.actual_duration_seconds)
+        return float(self.estimated_duration_seconds or 0.0)
+
+    def status_label(self) -> str:
+        return NARRATION_STATUS_LABELS.get(self.status, self.status)
+
+    def describe(self) -> str:
+        name = self.filename or "(no file)"
+        if self.actual_duration_seconds > 0:
+            timing = f"{self.actual_duration_seconds:.2f}s measured"
+        elif self.estimated_duration_seconds > 0:
+            timing = f"~{self.estimated_duration_seconds:.2f}s estimated"
+        else:
+            timing = "no duration yet"
+        return f"{name} · {self.status_label()} · {timing}"
+
+
+@dataclass
+class NarrationPlan(_Section):
+    """Narration configuration plus the tracks generated so far.
+
+    Lives beside ``VoiceSpec`` rather than replacing it: ``voice`` holds the
+    user's *choices*, this holds what was actually *produced* and whether it is
+    still current.
+    """
+
+    enabled: bool = True
+    mode: str = "full_script"
+    #: Relative output directory inside the project folder.
+    output_dir: str = NARRATION_SUBDIR
+    tracks: list[NarrationTrack] = field(default_factory=list)
+    #: Overall state shown in the interface, derived from the tracks.
+    status: str = "not_generated"
+    last_generated_at: str = ""
+    last_error: str = ""
+    #: Preprocessing options as chosen by the user (transparent, section 20).
+    preprocessing: dict = field(default_factory=dict)
+    #: Seconds of silence inserted between sections (0 = none).
+    section_gap_seconds: float = 0.0
+    extra: dict = field(default_factory=dict)
+
+    # -- queries ---------------------------------------------------------
+    def track_for(self, section_id: str = "") -> Optional["NarrationTrack"]:
+        for track in self.tracks:
+            if (track.section_id or "") == (section_id or ""):
+                return track
+        return None
+
+    def full_track(self) -> Optional["NarrationTrack"]:
+        for track in self.tracks:
+            if track.kind == "full":
+                return track
+        return None
+
+    @property
+    def generated_count(self) -> int:
+        return len([t for t in self.tracks if t.status == "ready"])
+
+    def total_duration_seconds(self) -> float:
+        return round(sum(track.duration_seconds() for track in self.tracks), 3)
+
+    def recompute_status(self) -> str:
+        """Derive the overall status from the tracks (never stored blind)."""
+        if not self.tracks:
+            self.status = "not_generated"
+            return self.status
+        statuses = {track.status for track in self.tracks}
+        for priority in ("generating", "failed", "missing", "cancelled", "stale", "ready"):
+            if priority in statuses:
+                self.status = priority
+                return self.status
+        self.status = "not_generated"
+        return self.status
+
+    def mark_stale(self, reason: str = "") -> int:
+        """Flag every ready track as stale (section 42).  Returns how many."""
+        changed = 0
+        for track in self.tracks:
+            if track.status == "ready":
+                track.status = "stale"
+                if reason:
+                    track.message = reason
+                changed += 1
+        if changed:
+            self.recompute_status()
+        return changed
+
+    def mode_label(self) -> str:
+        return NARRATION_MODE_LABELS.get(self.mode, self.mode)
+
+
+# --------------------------------------------------------------------------
 # Theme
 # --------------------------------------------------------------------------
 
@@ -468,6 +641,26 @@ def _audio_from_dict(data: Any) -> AudioSpec:
         audio.music = MusicTrack.from_dict(data.get("music"))
         audio.sfx = [SoundEffect.from_dict(item) for item in _as_list(data.get("sfx"))]
     return audio
+
+
+def _narration_from_dict(data: Any) -> NarrationPlan:
+    """Read the narration section, keeping unknown keys in ``extra``."""
+    narration = NarrationPlan()
+    _merge(narration, data)
+    if isinstance(data, dict):
+        narration.tracks = [
+            NarrationTrack.from_dict(item) for item in _as_list(data.get("tracks"))
+        ]
+        raw_pre = data.get("preprocessing")
+        narration.preprocessing = dict(raw_pre) if isinstance(raw_pre, dict) else {}
+    if narration.status not in NARRATION_STATUSES:
+        narration.status = "not_generated"
+    if narration.mode not in NARRATION_MODES:
+        narration.mode = "full_script"
+    for track in narration.tracks:
+        if track.status not in NARRATION_STATUSES:
+            track.status = "not_generated"
+    return narration
 
 
 # --------------------------------------------------------------------------
@@ -673,6 +866,7 @@ class Project:
     voice: VoiceSpec = field(default_factory=VoiceSpec)
     theme: ThemeSpec = field(default_factory=ThemeSpec)
     audio: AudioSpec = field(default_factory=AudioSpec)
+    narration: NarrationPlan = field(default_factory=NarrationPlan)
     scenes: list[SceneSpec] = field(default_factory=list)
     assets: list[AssetSpec] = field(default_factory=list)
     export: ExportSpec = field(default_factory=ExportSpec)
@@ -691,6 +885,7 @@ class Project:
             "voice": self.voice.to_dict(),
             "theme": self.theme.to_dict(),
             "audio": self.audio.to_dict(),
+            "narration": self.narration.to_dict(),
             "scenes": [scene.to_dict() for scene in self.scenes],
             "assets": [asset.to_dict() for asset in self.assets],
             "export": self.export.to_dict(),
@@ -706,7 +901,7 @@ class Project:
         if not isinstance(data, dict):
             return project
 
-        known = {"schema_version", "application_version", "project", "format", "script", "voice", "theme", "audio", "scenes", "assets", "export"}
+        known = {"schema_version", "application_version", "project", "format", "script", "voice", "theme", "audio", "narration", "scenes", "assets", "export"}
         project.schema_version = _as_int(data.get("schema_version"), PROJECT_SCHEMA_VERSION)
         project.application_version = _as_str(data.get("application_version"), APP_VERSION)
         project.project = ProjectMeta.from_dict(data.get("project"))
@@ -715,6 +910,7 @@ class Project:
         project.voice = VoiceSpec.from_dict(data.get("voice"))
         project.theme = _theme_from_dict(data.get("theme"))
         project.audio = _audio_from_dict(data.get("audio"))
+        project.narration = _narration_from_dict(data.get("narration"))
         project.scenes = [_scene_from_dict(item) for item in _as_list(data.get("scenes"))]
         project.assets = [AssetSpec.from_dict(item) for item in _as_list(data.get("assets"))]
         project.export = ExportSpec.from_dict(data.get("export"))
@@ -1043,6 +1239,14 @@ __all__ = [
     "ExportSpec",
     "FormatSpec",
     "MusicTrack",
+    "NarrationTrack",
+    "NARRATION_MODES",
+    "NARRATION_STATUS_LABELS",
+    "NARRATION_SUBDIR",
+    "NARRATION_FULL_FILENAME",
+    "NARRATION_SCENE_TEMPLATE",
+    "NARRATION_MODE_LABELS",
+    "NarrationPlan",
     "NarrationSpec",
     "PROJECT_FILENAME",
     "Project",

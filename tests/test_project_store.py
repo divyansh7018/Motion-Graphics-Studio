@@ -10,6 +10,7 @@ import json
 import time
 from pathlib import Path
 
+from app.core.version import PROJECT_SCHEMA_VERSION
 from app.project.layout import PROJECT_SUBDIRECTORIES, ProjectLayout
 from app.project.model import build_project
 from app.project.store import (
@@ -45,7 +46,12 @@ def test_saving_writes_a_readable_versioned_file(tmp_path) -> None:
     data = json.loads(layout.project_file.read_text(encoding="utf-8"))
     assert data["project"]["name"] == "Saved Project"
     assert data["project"]["project_version"] == 2, "a normal save increments the version"
-    assert data["schema_version"] == 2
+    # Compared against the constant, not a literal: bumping the schema for a new
+    # stage must not silently invalidate this test, and a hard-coded number here
+    # is how a format change slips past unnoticed.
+    assert data["schema_version"] == PROJECT_SCHEMA_VERSION
+    assert data["schema_version"] >= 3, "Stage C writes the narration schema"
+    assert "narration" in data, "the narration section is part of the saved model"
     assert result.bytes_written == layout.project_file.stat().st_size
 
 

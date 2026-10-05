@@ -81,7 +81,7 @@ real logic on a machine without a display.
 | `app/jobs/keys.py` | stable job identifiers |
 | `app/project/presets.py` | every codec/quality/format/template table - the only place they live |
 | `app/project/model.py` | the typed project model: sections, scenes, assets, (de)serialisation |
-| `app/project/migrations.py` | schema detection and the v1 → v2 migration |
+| `app/project/migrations.py` | schema detection and the v1 → v2 → v3 migrations |
 | `app/project/validation.py` | validation that collects every issue, plus the pre-render check |
 | `app/project/layout.py` | the project folder layout and path safety |
 | `app/project/store.py` | load/save, backups, autosave, recovery, rotation |
@@ -92,7 +92,18 @@ real logic on a machine without a display.
 | `app/project/history.py` | bounded undo/redo over project snapshots |
 | `app/project/service.py` | `ProjectService`: the one place projects are created and changed |
 | `app/tools/ffmpeg.py` | FFmpeg/FFprobe discovery, safe subprocess execution |
-| `app/tools/kokoro.py` | Kokoro detection (never loads the model at startup) |
+| `app/tools/kokoro.py` | legacy Kokoro probe kept for Stage B callers; superseded by `app/tts/capabilities.py` |
+| `app/script/parser.py` | plain ↔ structured script parsing; unknown labels are preserved, never dropped |
+| `app/script/stats.py` | word/character/sentence/paragraph counts and labelled duration estimates |
+| `app/script/io.py` | encoding validation, Markdown handling, import and export |
+| `app/tts/preprocess.py` | safe, configurable text preparation (wording is never rewritten silently) |
+| `app/tts/capabilities.py` | Kokoro probe: package, runtime, model, voices, languages, real initialisation |
+| `app/tts/voices.py` | voice catalogue, discovery from the model, filtering, choice validation |
+| `app/tts/engine.py` | the one Kokoro engine: lazy load, synthesis, cancellation, self-test |
+| `app/tts/audio.py` | WAV writing and strict validation (rate, channels, size, duration) |
+| `app/tts/cache.py` | source/settings hashes and the staleness comparison |
+| `app/tts/narration.py` | the script → preprocess → Kokoro → WAV → duration pipeline and status states |
+| `app/tts/jobs.py` | the four voice/narration job bodies and their specs |
 | `app/checks/status.py` | check framework: statuses, results, report, registry |
 | `app/checks/items.py` | the actual readiness checks |
 | `app/checks/job.py` | system check as a background job |
@@ -105,7 +116,9 @@ real logic on a machine without a display.
 | `app/ui/project_controller.py` | Qt glue: dialogs, autosave timer, dirty state - no logic of its own |
 | `app/ui/wizard/new_project.py` | the 9-step New Project wizard |
 | `app/ui/dialogs/project_dialogs.py` | Save/Discard/Cancel, recovery, conflict and missing-asset dialogs |
-| `app/ui/views/*` | pages (dashboard, project, project settings, browser, system check, settings, maintenance, diagnostics) |
+| `app/ui/views/script_view.py` | the Script page: editor, plain/structured toggle, counts, import/export, narration state |
+| `app/ui/views/narration_view.py` | the Narration page: engine card, voice table, preview, generation, status |
+| `app/ui/views/*` | other pages (dashboard, project, project settings, browser, system check, settings, maintenance, diagnostics) |
 | `app/ui/widgets/*` | shared widgets (cards, rows, job panel) |
 | `app/diagnostics/smoke.py` | end-to-end self-test |
 

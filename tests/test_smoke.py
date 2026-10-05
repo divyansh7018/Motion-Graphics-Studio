@@ -159,3 +159,103 @@ def test_smoke_test_can_be_run_twice_in_the_same_folder(paths, settings, tmp_pat
 
     assert first.passed, first.to_text()
     assert second.passed, second.to_text()
+
+
+# --------------------------------------------------------------------------
+# Stage C: the narration step
+# --------------------------------------------------------------------------
+
+STAGE_C_STEP = "Stage C: script to narration to reopened project"
+
+
+def test_the_narration_step_is_skipped_when_kokoro_is_missing(paths, settings) -> None:
+    """A machine without Kokoro must see a skip, never a false pass or a crash."""
+    result = run_smoke_test(paths, settings)
+
+    step = next(step for step in result.steps if step.name == STAGE_C_STEP)
+    assert step.skipped, "an absent engine is reported as a skip"
+    assert "Kokoro" in step.detail
+    assert step.ok, "a skip must not fail the whole smoke test"
+
+
+def test_the_narration_step_runs_the_full_workflow(paths, settings, monkeypatch) -> None:
+    """With an engine present the step must create, generate, save and reopen.
+
+    Kokoro is not installed in the test environment, so discovery is pointed at
+    a stand-in and the audio comes from the test double.  What is under test is
+    the step itself: it must really write a WAV, save the project, reopen it and
+    read the metadata back.
+    """
+    from types import SimpleNamespace
+
+    import app.tts.capabilities as capabilities
+    import app.tts.engine as engine
+    import app.tts.voices as voices
+    from tests.fake_tts import FakeKokoroEngine
+
+    model_file = paths.kokoro_model_dir / "kokoro-82m-v1.0.onnx"
+    model_file.parent.mkdir(parents=True, exist_ok=True)
+    model_file.write_bytes(b"ONNXFAKE" * 4096)
+
+    monkeypatch.setattr(capabilities, "probe_kokoro", lambda **_kw: SimpleNamespace(
+        ready=True, installed=True,
+        model=SimpleNamespace(path=model_file),
+        headline=lambda: "Kokoro 82M is ready.",
+    ))
+    monkeypatch.setattr(voices, "discover_voices", lambda **_kw: voices.VoiceCatalogue(
+        voices=[voices.VoiceInfo(id="hf_alpha", language="h", gender="female", available=True)],
+        languages=["h"], language_source="model directory",
+    ))
+
+    class _Engine(FakeKokoroEngine):
+        def __init__(self, *args, **kwargs):
+            super().__init__(sample_rate=24000)
+
+    monkeypatch.setattr(engine, "KokoroEngine", _Engine)
+
+    result = run_smoke_test(paths, settings)
+
+    step = next(step for step in result.steps if step.name == STAGE_C_STEP)
+    assert step.ok, step.detail
+    assert not step.skipped
+    assert "status ready after reopening" in step.detail
+    assert any(artifact.name == "narration_full.wav" for artifact in result.artifacts)
+
+
+def test_the_narration_step_leaves_a_real_wav_behind(paths, settings, monkeypatch) -> None:
+    """The file the step reports must exist and be a valid WAV."""
+    from types import SimpleNamespace
+
+    import app.tts.capabilities as capabilities
+    import app.tts.engine as engine
+    import app.tts.voices as voices
+    from app.tts.audio import validate_wav
+    from tests.fake_tts import FakeKokoroEngine
+
+    model_file = paths.kokoro_model_dir / "kokoro-82m-v1.0.onnx"
+    model_file.parent.mkdir(parents=True, exist_ok=True)
+    model_file.write_bytes(b"ONNXFAKE" * 4096)
+
+    monkeypatch.setattr(capabilities, "probe_kokoro", lambda **_kw: SimpleNamespace(
+        ready=True, installed=True,
+        model=SimpleNamespace(path=model_file),
+        headline=lambda: "Kokoro 82M is ready.",
+    ))
+    monkeypatch.setattr(voices, "discover_voices", lambda **_kw: voices.VoiceCatalogue(
+        voices=[voices.VoiceInfo(id="hf_alpha", language="h", gender="female", available=True)],
+        languages=["h"], language_source="model directory",
+    ))
+
+    class _Engine(FakeKokoroEngine):
+        def __init__(self, *args, **kwargs):
+            super().__init__(sample_rate=24000)
+
+    monkeypatch.setattr(engine, "KokoroEngine", _Engine)
+
+    result = run_smoke_test(paths, settings)
+
+    wavs = [path for path in result.artifacts if path.suffix == ".wav"]
+    assert wavs, "the smoke test must point at the narration file it produced"
+    info = validate_wav(wavs[0])
+    assert info.valid, info.problems
+    assert info.duration_seconds > 0

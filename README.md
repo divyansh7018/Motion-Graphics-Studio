@@ -5,10 +5,12 @@ voice → images → scenes → timeline → audio → preview → MP4, all on o
 No account, no cloud, no subscription, no internet connection required for any
 core function.
 
-**Build stage: A — foundation.** This build is the stable application shell:
-settings, folder management, structured logging, a safe background job system
-with cancellation, and a full system check. Project creation, narration and
-rendering are implemented in later stages (see `docs/ROADMAP.md`).
+**Build stage: C — script and narration.** This build adds the script editor
+(plain and structured), local Kokoro-82M narration with dynamic voice and
+language discovery, voice preview, and narration generation to WAV. It keeps the
+Stage A shell (settings, logging, background jobs, system check) and the Stage B
+project system (`project.json`, autosave, recovery, browser) intact. Scene
+rendering and final video output arrive in later stages (see `docs/ROADMAP.md`).
 
 ---
 
@@ -32,8 +34,16 @@ rendering are implemented in later stages (see `docs/ROADMAP.md`).
 | Missing-asset reporting with relink | ✅ working |
 | Project validation, including a pre-render check | ✅ working |
 | Project command line (`motion-studio project …`) | ✅ working |
-| Automated test suite (360 tests) | ✅ passing |
-| Narration (Kokoro), scenes, preview, render, QC | ⏳ later stages |
+| Script editor: plain text, structured scenes, counts, duration estimate | ✅ working |
+| Script import (TXT/Markdown) and export (TXT/Markdown/structured) | ✅ working |
+| Kokoro engine detection with a real initialisation self-test | ✅ working |
+| Dynamic voice and language discovery from the installed model | ✅ working |
+| Voice preview with its own text, speed and volume | ✅ working |
+| Narration generation to validated WAV, with measured duration | ✅ working |
+| Narration staleness, missing-file handling and regeneration | ✅ working |
+| Script and narration command line (`motion-studio script` / `voice` / `narration`) | ✅ working |
+| Automated test suite (560 tests) | ✅ passing |
+| Scenes, preview, render, QC | ⏳ later stages |
 | Licensing, accounts, payments | ❌ not in this build (Phase 2, later) |
 
 Nothing in the interface pretends to work: pages for later stages are shown as
@@ -50,7 +60,10 @@ delivers it. There are no placeholder buttons.
 * **CPU rendering is the default**: no NVIDIA GPU, no CUDA, no large VRAM is
   assumed or required
 * FFmpeg + FFprobe (the setup tool tells you exactly where to put them)
-* Kokoro-82M for narration — **optional**, installable later
+* Kokoro-82M for narration — **optional**, installable later:
+  `python -m pip install kokoro onnxruntime` plus the model weights. Without it
+  the application still starts and every other function works; the Narration page
+  and the System Check say plainly what is missing and how to fix it
 
 The application also runs on macOS and Linux for development; the release
 target is Windows.
@@ -127,7 +140,16 @@ and explains how to install it; everything else keeps working.
 | `motion-studio check [--deep]` | run the system check (`--deep` also encodes a test video) |
 | `motion-studio info` | folders, machine facts, settings, disk usage |
 | `motion-studio clean [--all]` | clear cached/temporary files |
-| `motion-studio smoke-test` | full end-to-end self-test |
+| `motion-studio smoke-test` | full end-to-end self-test (includes the narration workflow when Kokoro is installed) |
+| `motion-studio script show <project>` | print the script with its word/sentence/duration counts |
+| `motion-studio script import <project> <file>` | import a `.txt`/`.md` script, stored exactly as written |
+| `motion-studio script export <project> <file> [--format md\|script]` | export the script (refuses to overwrite without `--force`) |
+| `motion-studio script convert <project> --to structured` | print the script in another format without changing it |
+| `motion-studio voice list [--language h] [--gender female]` | voices discovered from the installed model |
+| `motion-studio voice check` | engine, runtime, model, voices, languages and whether it initialises |
+| `motion-studio voice preview --voice <id> [--text …]` | speak one sentence to a WAV file (never touches a project) |
+| `motion-studio narration generate <project> [--voice … --speed …]` | generate the narration audio for a project |
+| `motion-studio narration status <project>` | narration state, staleness, duration and files |
 | `motion-studio gui` | start the interface |
 
 Exit codes: `0` success, `1` problems found, `2` blocked (a required component
@@ -203,6 +225,7 @@ click away in every error dialog (`Copy details`).
 | `docs/TESTING.md` | what the test suite covers and how to run it |
 | `docs/STAGE_A_REPORT.md` | evidence that this build meets the Stage A gate |
 | `docs/STAGE_B_REPORT.md` | evidence that this build meets the Stage B gate |
+| `docs/STAGE_C_REPORT.md` | evidence that this build meets the Stage C gate |
 | `docs/PROJECT_FORMAT.md` | the versioned project file format (schema v2) |
 
 ---
