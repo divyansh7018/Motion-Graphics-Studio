@@ -397,3 +397,84 @@ def test_narration_status_reports_a_missing_file_as_a_problem(
 
     assert code == 1, "a missing file is a problem, not a clean bill of health"
     assert "missing" in out.lower()
+
+
+# --------------------------------------------------------------------------
+# The preview command, executed end to end
+# --------------------------------------------------------------------------
+
+def test_voice_preview_writes_a_wav_without_touching_a_project(
+    tmp_path: Path, ready_engine, capsys
+) -> None:
+    """Sections 9-10: preview is its own path and leaves the project alone."""
+    out_file = tmp_path / "preview.wav"
+
+    code = run_cli(
+        tmp_path, "voice", "preview",
+        "--voice", "hf_alpha", "--text", "A short preview sentence.",
+        "--output", str(out_file),
+    )
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    assert out_file.is_file(), out
+    assert out_file.stat().st_size > 44, "more than a bare WAV header"
+    assert "Wrote" in out and "of audio" in out
+
+    # No project folder was created as a side effect.
+    assert not list(tmp_path.glob("**/project.json"))
+
+
+def test_voice_preview_applies_the_requested_speed_and_volume(
+    tmp_path: Path, ready_engine, capsys
+) -> None:
+    from app.tts.audio import validate_wav
+
+    fast = tmp_path / "fast.wav"
+    slow = tmp_path / "slow.wav"
+
+    assert run_cli(tmp_path, "voice", "preview", "--voice", "hf_alpha",
+                   "--text", "The same sentence spoken twice for comparison.",
+                   "--speed", "1.5", "--output", str(fast)) == 0
+    capsys.readouterr()
+    assert run_cli(tmp_path, "voice", "preview", "--voice", "hf_alpha",
+                   "--text", "The same sentence spoken twice for comparison.",
+                   "--speed", "0.75", "--output", str(slow)) == 0
+    capsys.readouterr()
+
+    fast_info = validate_wav(fast)
+    slow_info = validate_wav(slow)
+    assert fast_info.valid and slow_info.valid
+    assert slow_info.duration_seconds > fast_info.duration_seconds, (
+        "a slower speed must produce longer audio"
+    )
+
+
+def test_voice_preview_refuses_a_voice_outside_the_catalogue(
+    tmp_path: Path, ready_engine, capsys
+) -> None:
+    code = run_cli(tmp_path, "voice", "preview", "--voice", "zz_not_real",
+                   "--output", str(tmp_path / "nope.wav"))
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "not in the installed catalogue" in out
+    assert not (tmp_path / "nope.wav").exists()
+
+
+def test_voice_preview_says_what_to_do_when_the_engine_is_missing(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(
+        capabilities, "probe_package",
+        lambda name="kokoro": (False, "", "No module named 'kokoro'"),
+    )
+    monkeypatch.setattr(capabilities, "_language_codes_from_engine", lambda: {})
+
+    code = run_cli(tmp_path, "voice", "preview", "--voice", "hf_alpha")
+    out = capsys.readouterr().out
+
+    assert code == 2, "a missing engine is a blocker, not a plain failure"
+    assert "→" in out, "the user is told what to do next"

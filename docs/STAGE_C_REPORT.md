@@ -238,19 +238,19 @@ machine that has the model installed for the real-weights evidence.
 ```
 LD_LIBRARY_PATH=/tmp/stublib QT_QPA_PLATFORM=offscreen \
     python -m pytest tests -q
-→ 587 passed
+→ 591 passed
 ```
 
 | Group | Tests |
 |---|---|
 | Stage A | 153 |
 | Stage B | 208 |
-| **Stage C** | **226** |
-| **Total** | **587** |
+| **Stage C** | **230** |
+| **Total** | **591** |
 
 Stage C by file: `test_script` 43, `test_tts` 54, `test_narration` 39,
-`test_narration_ui` 41, `test_cli_voice` 19, `test_checks_voice` 12,
-`test_tts_jobs` 12 — 220 in the new files, plus 3 new smoke-test cases and
+`test_narration_ui` 41, `test_cli_voice` 23, `test_checks_voice` 12,
+`test_tts_jobs` 12 — 224 in the new files, plus 3 new smoke-test cases and
 3 window-level tests added to existing suites.
 
 Lint: `ruff check app/ tests/ scripts/ installer/ run_studio.py --select F,E9`
@@ -374,7 +374,7 @@ python run_studio.py --data-root D:\MotionStudio     # portable data folder
 **Tests:**
 
 ```
-python -m pytest tests -q                            # 587 tests
+python -m pytest tests -q                            # 591 tests
 python -m pytest tests/test_narration.py -q          # narration pipeline
 python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine real
 python -m app.cli.main voice check                   # engine readiness
@@ -405,7 +405,7 @@ Stage C gate items 8, 9, 14 and 17 stay marked as code-verified only.
 
 ## 12. Statement
 
-No known P0 or P1 bugs remain in the Stage C workflow. All 587 automated tests
+No known P0 or P1 bugs remain in the Stage C workflow. All 591 automated tests
 pass and all 16 manual scenarios pass. Kokoro detection and language discovery
 are verified against the real installed package (0.9.4). **Real Kokoro audio
 generation has not been verified in this environment** — the model weights cannot
