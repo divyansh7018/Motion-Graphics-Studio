@@ -989,6 +989,41 @@ class Project:
         self.touch()
         return True
 
+    def duplicate_scene(self, scene_id: str, *, index: Optional[int] = None) -> Optional[SceneSpec]:
+        """A deep copy of a scene, placed after the original.
+
+        The copy gets fresh ids for itself and every element, so the original
+        and the copy can live side by side without colliding.  Narration file
+        references are copied, not the files - the audio is not duplicated.
+        """
+        original = self.scene_by_id(scene_id)
+        if original is None:
+            return None
+        copy = SceneSpec.from_dict(original.to_dict())
+        copy.id = new_id("scene")
+        copy.name = (original.name or "Scene") + " (copy)"
+        for element in copy.elements:
+            element.id = new_id("el")
+        if index is None:
+            index = self.scenes.index(original) + 1
+        self.add_scene(copy, index=index)
+        return copy
+
+    def rename_scene(self, scene_id: str, new_name: str) -> bool:
+        scene = self.scene_by_id(scene_id)
+        if scene is None:
+            return False
+        scene.name = str(new_name)
+        self.touch()
+        return True
+
+    def move_scene_by(self, scene_id: str, delta: int) -> bool:
+        """Reorder helper: move a scene up (negative) or down (positive)."""
+        scene = self.scene_by_id(scene_id)
+        if scene is None:
+            return False
+        return self.move_scene(scene_id, self.scenes.index(scene) + delta)
+
     def timeline(self) -> list[dict]:
         """Compute start times from the effective durations (sequential).
 

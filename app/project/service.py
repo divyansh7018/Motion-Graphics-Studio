@@ -645,6 +645,49 @@ class ProjectService:
         self.edit("Move scene", apply)
         return True
 
+    def move_scene_by(self, scene_id: str, delta: int) -> bool:
+        session = self._require_session()
+        if session.project.scene_by_id(scene_id) is None:
+            return False
+        self.edit("Reorder scene", lambda project: project.move_scene_by(scene_id, delta))
+        return True
+
+    def duplicate_scene(self, scene_id: str) -> Optional[SceneSpec]:
+        """Copy a scene as one undoable edit and return the copy."""
+        session = self._require_session()
+        if session.project.scene_by_id(scene_id) is None:
+            return None
+        created: dict = {}
+
+        def apply(project: Project) -> None:
+            created["copy"] = project.duplicate_scene(scene_id)
+
+        self.edit("Duplicate scene", apply)
+        return created.get("copy")
+
+    def rename_scene(self, scene_id: str, new_name: str) -> bool:
+        session = self._require_session()
+        if session.project.scene_by_id(scene_id) is None:
+            return False
+        self.edit("Rename scene", lambda project: project.rename_scene(scene_id, new_name))
+        return True
+
+    def add_scene_from_template(self, template_key: str, content: Optional[dict] = None,
+                                **options) -> SceneSpec:
+        """Add a scene built from the registry; the template defines the layout."""
+        from ..scene.templates import create_scene_from_template
+
+        self._require_session()
+        created: dict = {}
+
+        def apply(project: Project) -> None:
+            scene = create_scene_from_template(template_key, content, **options)
+            project.add_scene(scene)
+            created["scene"] = scene
+
+        self.edit(f"Add {template_key} scene", apply)
+        return created["scene"]
+
     def undo(self) -> Optional[str]:
         session = self._require_session()
         outcome = session.history.undo(session.project)
