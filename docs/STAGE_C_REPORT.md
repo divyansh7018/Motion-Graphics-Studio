@@ -238,19 +238,20 @@ machine that has the model installed for the real-weights evidence.
 ```
 LD_LIBRARY_PATH=/tmp/stublib QT_QPA_PLATFORM=offscreen \
     python -m pytest tests -q
-→ 566 passed
+→ 570 passed
 ```
 
 | Group | Tests |
 |---|---|
 | Stage A | 153 |
 | Stage B | 208 |
-| **Stage C** | **205** |
-| **Total** | **566** |
+| **Stage C** | **209** |
+| **Total** | **570** |
 
-Stage C by file: `test_script` 43, `test_tts` 52, `test_narration` 39,
-`test_narration_ui` 27, `test_cli_voice` 14, `test_checks_voice` 12,
-`test_tts_jobs` 9, plus 3 new smoke-test cases.
+Stage C by file: `test_script` 43, `test_tts` 54, `test_narration` 39,
+`test_narration_ui` 27, `test_cli_voice` 19, `test_checks_voice` 12,
+`test_tts_jobs` 9 — 203 in the new files, plus 3 new smoke-test cases and
+3 window-level tests added to existing suites.
 
 Lint: `ruff check app/ tests/ scripts/ installer/ run_studio.py --select F,E9`
 → **All checks passed.**
@@ -272,6 +273,9 @@ regression test:
 | The language dropdown listed `af` and `am` separately | "English (US)" appeared twice in the picker | `test_narration_ui.py::test_the_language_filter_narrows_the_voice_list` |
 | An unavailable voice could not be selected at all | the user could not set up a project before installing the engine | `test_narration_ui.py::test_a_voice_can_be_selected_into_the_project` |
 | The smoke step used a `NarrationTrack.resolve()` method that does not exist | the new smoke step always failed | `test_smoke.py::test_the_narration_step_runs_the_full_workflow` |
+| `motion-studio narration status` rebuilt its settings snapshot inline, omitting the model version | it reported every track as **stale** seconds after generating it | `test_cli_voice.py::test_narration_status_reflects_a_generated_track` |
+| `probe_voices` returned engine display labels on one path and voice-id codes on the other | the System Check printed "English (US) (American English)" and the language filter matched by luck | `test_tts.py::test_languages_are_codes_not_display_labels` |
+| `VoiceCatalogue.blocker()` only inspected voices, so an empty catalogue had no explanation | the Voice panel could show an empty list with no reason | `test_tts_jobs.py::test_a_configured_dir_that_does_not_exist_reports_zero_voices` |
 
 ---
 
@@ -364,7 +368,7 @@ python run_studio.py --data-root D:\MotionStudio     # portable data folder
 **Tests:**
 
 ```
-python -m pytest tests -q                            # 566 tests
+python -m pytest tests -q                            # 570 tests
 python -m pytest tests/test_narration.py -q          # narration pipeline
 python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine real
 python -m app.cli.main voice check                   # engine readiness
@@ -395,7 +399,7 @@ Stage C gate items 8, 9, 14 and 17 stay marked as code-verified only.
 
 ## 12. Statement
 
-No known P0 or P1 bugs remain in the Stage C workflow. All 566 automated tests
+No known P0 or P1 bugs remain in the Stage C workflow. All 570 automated tests
 pass and all 16 manual scenarios pass. Kokoro detection and language discovery
 are verified against the real installed package (0.9.4). **Real Kokoro audio
 generation has not been verified in this environment** — the model weights cannot

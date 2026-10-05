@@ -324,20 +324,17 @@ def command_narration_generate(args, paths: AppPaths, settings: Settings) -> int
 
 def command_narration_status(args, paths: AppPaths, settings: Settings) -> int:
     """Report narration state, including stale and missing files."""
-    from ..tts.narration import NarrationSettings, refresh_statuses, status_explanation
+    from ..tts.narration import status_explanation
 
     service = make_service(paths, settings)
     project = _open(service, Path(args.project))
     if project is None:
         return EXIT_PROBLEMS
 
-    snapshot = NarrationSettings(
-        voice=project.voice.voice, language=project.voice.language,
-        speed=float(project.voice.speed or 1.0), volume=float(project.voice.volume or 1.0),
-        sample_rate=int(project.voice.sample_rate or 24000),
-        preprocessing=dict(project.narration.preprocessing or {}),
-    )
-    notes = refresh_statuses(project, service.current_layout.root, snapshot)
+    # Built by the service, not here: it resolves the model version from the
+    # recorded track, without which the settings hash cannot match and every
+    # track would be reported stale even seconds after generating it.
+    notes = service.refresh_narration_statuses()
 
     print(f"Status  : {project.narration.status}")
     print(f"Mode    : {project.narration.mode_label()}")

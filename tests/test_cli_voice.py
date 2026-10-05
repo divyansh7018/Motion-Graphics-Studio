@@ -47,6 +47,18 @@ def run_cli(tmp_path: Path, *argv: str) -> int:
     return main(["--data-root", str(tmp_path / "appdata"), *argv])
 
 
+def release_locks(tmp_path: Path) -> None:
+    """Drop advisory project locks left by an earlier in-process call.
+
+    A real CLI invocation is its own process, so it exits and its lock goes
+    stale.  Several calls in one test keep the same pid alive, which the lock
+    reads as a second window on the same project.  Removing the file reproduces
+    what the next real invocation would see.
+    """
+    for lock in tmp_path.rglob(".project.lock.json"):
+        lock.unlink(missing_ok=True)
+
+
 def run_cli_process(tmp_path: Path, *argv: str):
     """Run the CLI as a separate process and return ``(code, output)``.
 
@@ -252,3 +264,136 @@ def test_the_cli_help_lists_the_new_commands(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     for command in ("script", "voice", "narration"):
         assert command in out
+
+
+# --------------------------------------------------------------------------
+# The generation command, executed end to end
+# --------------------------------------------------------------------------
+
+@pytest.fixture()
+def ready_engine(monkeypatch, tmp_path: Path):
+    """Make the CLI see a ready engine whose audio comes from the test double.
+
+    Kokoro's weights cannot be downloaded in this environment, so the probe is
+    pointed at a stand-in and the audio is synthesised by the test double.  The
+    command itself - argument handling, settings assembly, generation, save,
+    exit codes - runs for real.
+    """
+    from types import SimpleNamespace
+
+    import app.tts.capabilities as capabilities
+    import app.tts.engine as engine_module
+
+    from tests.fake_tts import FakeKokoroEngine
+
+    model_file = tmp_path / "models" / "kokoro" / "kokoro-82m-v1.0.onnx"
+    model_file.parent.mkdir(parents=True, exist_ok=True)
+    model_file.write_bytes(b"ONNXFAKE" * 4096)
+
+    # Patched at the source module: the CLI imports it inside the function body.
+    monkeypatch.setattr(capabilities, "probe_kokoro", lambda **_kw: SimpleNamespace(
+        ready=True, installed=True, package_version="0.9.4",
+        model=SimpleNamespace(path=model_file),
+        runtime=SimpleNamespace(name="onnxruntime", describe="onnxruntime 1.30.0"),
+        voices=["hf_alpha", "af_bella"], languages=["h", "a"],
+        language_source="engine", phonemizer=["misaki"],
+        verified=True, headline=lambda: "Kokoro 82M is ready.",
+    ))
+
+    class _Engine(FakeKokoroEngine):
+        def __init__(self, *args, **kwargs):
+            super().__init__(sample_rate=24000)
+
+    monkeypatch.setattr(engine_module, "KokoroEngine", _Engine)
+    return model_file
+
+
+def test_narration_generate_writes_audio_and_saves_the_project(
+    tmp_path: Path, ready_engine, capsys
+) -> None:
+    run_cli(tmp_path, "project", "create", "--name", "CLI Test", "--folder", str(tmp_path / "proj"))
+    release_locks(tmp_path)
+    source = tmp_path / "in.txt"
+    source.write_text("Hello. This is a local narration test.", encoding="utf-8")
+    run_cli(tmp_path, "script", "import", str(tmp_path / "proj"), str(source))
+    release_locks(tmp_path)
+
+    code = run_cli(
+        tmp_path, "narration", "generate", str(tmp_path / "proj"),
+        "--voice", "hf_alpha", "--language", "h", "--speed", "1.1",
+    )
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    wav = tmp_path / "proj" / "audio" / "narration" / "narration_full.wav"
+    assert wav.is_file(), out
+    assert wav.stat().st_size > 44, "the file must hold more than a WAV header"
+    assert "narration_full.wav" in out
+
+    stored = json.loads((tmp_path / "proj" / "project.json").read_text(encoding="utf-8"))
+    assert stored["narration"]["status"] == "ready"
+    assert stored["narration"]["tracks"][0]["voice"] == "hf_alpha"
+    assert stored["narration"]["tracks"][0]["actual_duration_seconds"] > 0
+    assert float(stored["voice"]["speed"]) == pytest.approx(1.1)
+
+
+def test_narration_generate_refuses_a_voice_outside_the_catalogue(
+    tmp_path: Path, ready_engine, capsys
+) -> None:
+    run_cli(tmp_path, "project", "create", "--name", "CLI Test", "--folder", str(tmp_path / "proj"))
+    release_locks(tmp_path)
+    source = tmp_path / "in.txt"
+    source.write_text("A sentence.", encoding="utf-8")
+    run_cli(tmp_path, "script", "import", str(tmp_path / "proj"), str(source))
+    release_locks(tmp_path)
+
+    code = run_cli(
+        tmp_path, "narration", "generate", str(tmp_path / "proj"), "--voice", "zz_not_real"
+    )
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "not in the installed catalogue" in out
+    assert not (tmp_path / "proj" / "audio" / "narration" / "narration_full.wav").exists()
+
+
+def test_narration_status_reflects_a_generated_track(
+    tmp_path: Path, ready_engine, capsys
+) -> None:
+    run_cli(tmp_path, "project", "create", "--name", "CLI Test", "--folder", str(tmp_path / "proj"))
+    release_locks(tmp_path)
+    source = tmp_path / "in.txt"
+    source.write_text("A sentence worth narrating.", encoding="utf-8")
+    run_cli(tmp_path, "script", "import", str(tmp_path / "proj"), str(source))
+    release_locks(tmp_path)
+    run_cli(tmp_path, "narration", "generate", str(tmp_path / "proj"), "--voice", "hf_alpha")
+    release_locks(tmp_path)
+    capsys.readouterr()
+
+    code = run_cli(tmp_path, "narration", "status", str(tmp_path / "proj"))
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    assert "Status  : ready" in out
+    assert "narration_full.wav" in out
+
+
+def test_narration_status_reports_a_missing_file_as_a_problem(
+    tmp_path: Path, ready_engine, capsys
+) -> None:
+    run_cli(tmp_path, "project", "create", "--name", "CLI Test", "--folder", str(tmp_path / "proj"))
+    release_locks(tmp_path)
+    source = tmp_path / "in.txt"
+    source.write_text("A sentence worth narrating.", encoding="utf-8")
+    run_cli(tmp_path, "script", "import", str(tmp_path / "proj"), str(source))
+    release_locks(tmp_path)
+    run_cli(tmp_path, "narration", "generate", str(tmp_path / "proj"), "--voice", "hf_alpha")
+    release_locks(tmp_path)
+    capsys.readouterr()
+
+    (tmp_path / "proj" / "audio" / "narration" / "narration_full.wav").unlink()
+    code = run_cli(tmp_path, "narration", "status", str(tmp_path / "proj"))
+    out = capsys.readouterr().out
+
+    assert code == 1, "a missing file is a problem, not a clean bill of health"
+    assert "missing" in out.lower()
