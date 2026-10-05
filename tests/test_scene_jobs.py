@@ -96,7 +96,6 @@ def test_scene_preview_job_renders_one_full_resolution_frame(project_with_image,
     project, project_dir = project_with_image
     scene = project.scenes[0]
     previews = tmp_path / "previews"
-    context = _context({"project": project, "project_dir": str(project_dir)}, previews=previews)
 
     result = jobs.scene_preview_body(
         JobContext(job_id="p", key=JobKeys.SCENE_PREVIEW, cancel=CancelToken(),

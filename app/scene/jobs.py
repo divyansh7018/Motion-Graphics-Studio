@@ -11,7 +11,6 @@ project, so previewing cannot create, modify or clobber any project file.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from app.core.logging_setup import get_logger
 from app.jobs.keys import JobKeys
