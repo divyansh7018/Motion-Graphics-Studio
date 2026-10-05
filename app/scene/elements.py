@@ -106,6 +106,9 @@ class LayoutContext:
     font_family: str = ""
     #: Directory the project's assets live in (for image elements).
     asset_root: Optional[Path] = None
+    #: Resolved absolute path per asset id, built from the project's asset list.
+    #: This is the trustworthy lookup; ``asset_root`` is only a fallback.
+    asset_paths: dict = field(default_factory=dict)
     #: Multiplier applied to design units.  Used to render thumbnails cheaply.
     scale: float = 1.0
 
@@ -559,7 +562,13 @@ def _layout_image(spec: ElementSpec, ctx: LayoutContext, z: int) -> ResolvedElem
     asset_id = getattr(spec, "asset_id", "") or ""
     asset_root = ctx.asset_root
     path: Optional[Path] = None
-    if asset_id and asset_root is not None:
+
+    if asset_id and ctx.asset_paths:
+        resolved = ctx.asset_paths.get(asset_id)
+        if resolved is not None and Path(resolved).is_file():
+            path = Path(resolved)
+
+    if path is None and asset_id and asset_root is not None:
         # Assets live under the project's assets folder; the spec stores the id
         # and, optionally, an explicit relative path in extra.
         relative = str(extra.get("path", "") or "")
