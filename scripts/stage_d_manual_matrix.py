@@ -209,10 +209,12 @@ def main() -> int:
     record(16, "Scene preview + validation", frame_ok and not validation.errors,
            f"preview at {result['path']}; {len(validation.errors)} validation errors")
 
-    # Save a few frames for the human to inspect.
+    # Save a few frames for the human to inspect.  ":" is illegal in Windows
+    # file names, so ratio labels are sanitised for the file name only.
     for label, frames in rendered.items():
+        safe_label = label.replace(":", "x")
         for index, frame in enumerate(frames):
-            frame.save(previews / f"{label}-scene{index}.png")
+            frame.save(previews / f"{safe_label}-scene{index}.png")
 
     service.save(reason="Stage D matrix evidence")
 
