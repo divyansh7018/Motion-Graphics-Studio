@@ -426,6 +426,10 @@ class PixelRect:
             max(0, self.height - top - bottom),
         )
 
+    def offset(self, dx: int, dy: int) -> "PixelRect":
+        """The same box moved by ``dx``/``dy`` (used to draw in layer space)."""
+        return PixelRect(self.x + int(dx), self.y + int(dy), self.width, self.height)
+
     def to_dict(self) -> dict:
         return {"x": self.x, "y": self.y, "width": self.width, "height": self.height}
 
