@@ -35,6 +35,7 @@ from .dialogs.project_dialogs import (
     ask_missing_asset,
     ask_recovery,
     ask_unsaved_changes,
+    show_compare,
 )
 from .notifications import ask_confirm, show_error, show_info
 
@@ -277,8 +278,39 @@ class ProjectController(QObject):
         self.message.emit(f"Duplicated as “{duplicate.project.name}”.", 6000)
         return True
 
+    def comparison_texts(self) -> tuple[str, str]:
+        """``(this copy, on disk)`` rendered for the comparison dialog.
+
+        Both sides are re-serialised the same way, so the diff shows real
+        differences rather than formatting noise.  A damaged file on disk is
+        shown as-is, because that is what the user needs to see.
+        """
+        import json
+
+        mine = json.dumps(self.service.current.to_dict(), indent=2, ensure_ascii=False)
+        theirs = mine
+        if self.service.current_layout is not None:
+            project_file = self.service.current_layout.project_file
+            try:
+                theirs = json.dumps(
+                    json.loads(project_file.read_text(encoding="utf-8")), indent=2, ensure_ascii=False
+                )
+            except (OSError, ValueError):
+                try:
+                    theirs = project_file.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    theirs = f"(the file could not be read: {exc})"
+        return mine, theirs
+
     def _resolve_conflict(self, parent: Optional[QWidget], exc: ProjectConflictError) -> bool:
-        choice = ask_external_change(parent, exc.friendly())
+        # "Compare" shows the two versions and then asks again, so the user can
+        # look before deciding (directive section 29).
+        while True:
+            choice = ask_external_change(parent, exc.friendly())
+            if choice is not ConflictChoice.COMPARE:
+                break
+            show_compare(parent, *self.comparison_texts())
+        
         if choice is ConflictChoice.RELOAD:
             try:
                 project = self.service.discard_changes()

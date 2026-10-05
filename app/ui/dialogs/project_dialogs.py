@@ -17,11 +17,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -48,6 +50,7 @@ class RecoveryChoice(str, Enum):
 class ConflictChoice(str, Enum):
     RELOAD = "reload"
     KEEP = "keep"
+    COMPARE = "compare"
     SAVE_AS = "save_as"
     CANCEL = "cancel"
 
@@ -183,8 +186,64 @@ def ask_recovery(parent: Optional[QWidget], candidate: RecoveryCandidate) -> Rec
 # External change
 # --------------------------------------------------------------------------
 
+class CompareDialog(QDialog):
+    """What this copy holds, next to what the file on disk holds."""
+
+    def __init__(self, mine: str, theirs: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Compare with the version on disk")
+        self.setMinimumSize(860, 520)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(METRICS.lg, METRICS.lg, METRICS.lg, METRICS.lg)
+        layout.setSpacing(METRICS.sm)
+
+        import difflib
+
+        diff = list(
+            difflib.unified_diff(
+                theirs.splitlines(), mine.splitlines(), fromfile="on disk", tofile="this copy", lineterm=""
+            )
+        )
+        changed = sum(1 for line in diff if line.startswith(("+", "-")) and not line.startswith(("+++", "---")))
+        layout.addWidget(
+            HintLabel(
+                f"{changed} line(s) differ. Nothing has been written; choose what to do next."
+                if changed
+                else "The two copies are identical."
+            )
+        )
+
+        columns = QHBoxLayout()
+        columns.setSpacing(METRICS.md)
+        for heading, text in (("On disk", theirs), ("This copy (unsaved)", mine)):
+            column = QVBoxLayout()
+            label = QLabel(heading)
+            font = label.font()
+            font.setBold(True)
+            label.setFont(font)
+            column.addWidget(label)
+            view = QPlainTextEdit()
+            view.setReadOnly(True)
+            view.setLineWrapMode(QPlainTextEdit.NoWrap)
+            view.setPlainText(text)
+            column.addWidget(view, 1)
+            wrapper = QWidget()
+            wrapper.setLayout(column)
+            columns.addWidget(wrapper, 1)
+        layout.addLayout(columns, 1)
+
+        close_button = QPushButton("Back to the choice")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button, alignment=Qt.AlignRight)
+
+
+def show_compare(parent: Optional[QWidget], mine: str, theirs: str) -> None:
+    CompareDialog(mine, theirs, parent).exec()
+
+
 class ExternalChangeDialog(QDialog):
-    """Reload / Keep editing / Save as / Cancel."""
+    """Reload / Keep editing / Compare / Save as / Cancel."""
 
     def __init__(self, friendly: FriendlyError, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -213,12 +272,15 @@ class ExternalChangeDialog(QDialog):
         reload_button.clicked.connect(lambda: self._finish(ConflictChoice.RELOAD))
         keep_button = QPushButton("Keep editing this copy")
         keep_button.clicked.connect(lambda: self._finish(ConflictChoice.KEEP))
+        compare_button = QPushButton("Compare…")
+        compare_button.setToolTip("See the two versions side by side before deciding.")
+        compare_button.clicked.connect(lambda: self._finish(ConflictChoice.COMPARE))
         save_as_button = QPushButton("Save as…")
         save_as_button.setDefault(True)
         save_as_button.clicked.connect(lambda: self._finish(ConflictChoice.SAVE_AS))
         cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self.reject)
-        for button in (reload_button, keep_button, save_as_button):
+        for button in (reload_button, keep_button, compare_button, save_as_button):
             buttons.addWidget(button)
         buttons.addStretch(1)
         buttons.addWidget(cancel_button)
@@ -305,6 +367,7 @@ def ask_missing_asset(parent: Optional[QWidget], asset_name: str, expected: str)
 
 
 __all__ = [
+    "CompareDialog",
     "ConflictChoice",
     "ExternalChangeDialog",
     "MissingAssetChoice",
@@ -317,4 +380,5 @@ __all__ = [
     "ask_missing_asset",
     "ask_recovery",
     "ask_unsaved_changes",
+    "show_compare",
 ]

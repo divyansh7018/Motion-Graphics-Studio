@@ -455,6 +455,40 @@ def test_external_change_dialog_is_offered_on_conflict(tmp_path, monkeypatch) ->
 # browser + window plumbing
 # --------------------------------------------------------------------------
 
+def test_external_change_compare_shows_both_versions(tmp_path, monkeypatch) -> None:
+    """Compare must show the two versions and then ask again (section 29)."""
+    service, project, paths = create_project(tmp_path, "Compare UI")
+    service.save()
+    window = make_window(tmp_path, monkeypatch)
+    window.context.projects.service = service
+    window.open_project_path(paths.projects_dir / "Compare UI")
+
+    window.project_page.script_edit.setPlainText("Our edit.")
+    window.project_page._apply_script()
+
+    from app.project.store import ProjectStore
+
+    from app.project.layout import ProjectLayout
+
+    store = ProjectStore()
+    folder = paths.projects_dir / "Compare UI"
+    loaded = store.load(folder / "project.json")
+    loaded.project.script.source_text = "Their edit."
+    store.save(loaded.project, ProjectLayout.from_project_file(loaded.path), backup=False)
+
+    shown: list = []
+    answers = iter([dialogs.ConflictChoice.COMPARE, dialogs.ConflictChoice.RELOAD])
+    monkeypatch.setattr(pc, "ask_external_change", lambda *a, **k: next(answers))
+    monkeypatch.setattr(pc, "show_compare", lambda parent, mine, theirs: shown.append((mine, theirs)))
+
+    window.save_project()
+
+    assert len(shown) == 1, "the comparison must be shown exactly once"
+    mine, theirs = shown[0]
+    assert "Our edit." in mine and "Their edit." in theirs
+    assert window.context.projects.project.script.source_text == "Their edit."
+
+
 def test_browser_lists_every_project_in_the_folder(tmp_path, monkeypatch) -> None:
     service, project, paths = create_project(tmp_path, "Browser One")
     service.close_project()
