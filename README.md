@@ -42,7 +42,7 @@ rendering and final video output arrive in later stages (see `docs/ROADMAP.md`).
 | Narration generation to validated WAV, with measured duration | ✅ working |
 | Narration staleness, missing-file handling and regeneration | ✅ working |
 | Script and narration command line (`motion-studio script` / `voice` / `narration`) | ✅ working |
-| Automated test suite (560 tests) | ✅ passing |
+| Automated test suite (563 tests) | ✅ passing |
 | Scenes, preview, render, QC | ⏳ later stages |
 | Licensing, accounts, payments | ❌ not in this build (Phase 2, later) |
 

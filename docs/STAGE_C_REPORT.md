@@ -96,23 +96,35 @@ tests/test_project_store.py      schema assertions made version-independent
 
 ## 3. Detected language and voice counts
 
-From **this** environment, where the `kokoro` package is not installed:
+The `kokoro` package **is** installed in this environment (0.9.4), with ONNX
+Runtime 1.30.0 and the misaki phonemiser. Detection therefore ran against the
+real package, not a simulation:
 
 ```
 $ python -m app.cli.main voice check
-Kokoro      : Kokoro is not installed.
-Package     : not installed
-Runtime     : not installed
+Kokoro      : Kokoro is installed but its model weights are missing.
+Package     : installed 0.9.4
+Runtime     : onnxruntime 1.30.0 — CPU execution
 Model       : No Kokoro model weights were found.
 Voices      : 0
-Languages   : none
-Phonemiser  : none found
+Languages   : a, b, e, f, h, i, j, p, z
+Phonemiser  : misaki, espeakng_loader, phonemizer
 Initialised : no
 ```
 
-**Detected language count: 0. Detected voice count: 0.** That is the honest
-number for a machine without the engine, and the application reports it plainly
-rather than showing an empty list with no explanation.
+**Detected language count: 9.** Taken from the installed pipeline's own table
+(`kokoro.pipeline.LANG_CODES`), not from a list in this codebase:
+
+| Code | Language | Code | Language |
+|---|---|---|---|
+| `a` | English (US) | `i` | Italian |
+| `b` | English (UK) | `j` | Japanese |
+| `e` | Spanish | `p` | Portuguese |
+| `f` | French | `z` | Mandarin Chinese |
+| `h` | Hindi | | |
+
+**Detected voice count: 0** — the model weights are not present, so there are no
+voice files to read. The panel explains that rather than showing a blank list.
 
 Against a synthetic model folder laid out like a real installation, the same code
 discovers what is on disk — no fixed list, no fixed count:
@@ -120,27 +132,26 @@ discovers what is on disk — no fixed list, no fixed count:
 ```
 $ python -m app.cli.main voice list --model-dir <synthetic model>
 Voices   : 4
-af_bella         English (US)       female   UNAVAILABLE (The kokoro package is not installed…)
-am_adam          English (US)       male     UNAVAILABLE (…)
-hf_alpha         Hindi              female   UNAVAILABLE (…)
-hm_ishaan        Hindi              male     UNAVAILABLE (…)
+af_bella         English (US)       female   …
+am_adam          English (US)       male     …
+hf_alpha         Hindi              female   …
+hm_ishaan        Hindi              male     …
 ```
 
-On a real Windows machine with `kokoro` + `onnxruntime` + weights, this reports
-the actual catalogue of the installed model. Nothing in the code caps or assumes
-that number, and Hindi/English are not special-cased.
-
----
+On a machine with the weights installed, this reports that model's actual
+catalogue. Nothing caps or assumes the number, and Hindi/English are not
+special-cased.
 
 ## 4. Kokoro self-test result
 
 The System Check's `voice.selftest` step generates real audio through the
-configured pipeline and validates the WAV. In this environment:
+configured pipeline and validates the WAV. With the real package installed but no
+weights:
 
 ```
-⚠ voice.kokoro    : Kokoro is not installed.
+⚠ voice.kokoro    : Kokoro is installed but its model weights are missing.
 ⚠ voice.voices    : no voices discovered
-⚠ voice.languages : 0 languages detected
+✓ voice.languages : 9 languages (detected from engine)
 - voice.selftest  : Skipped: Kokoro is not ready
 ```
 
@@ -148,9 +159,8 @@ configured pipeline and validates the WAV. In this environment:
 every other function works (matrix scenario 12 confirms this: the project was
 created and saved, with 0 start-up blockers).
 
-**A real Kokoro self-test has not been executed in this environment** — see §8.
-
----
+**The self-test has not produced audio in this environment**, because it needs
+the model weights — see §8.
 
 ## 5. Narration generation result
 
@@ -228,15 +238,15 @@ machine that has the model installed for the real-weights evidence.
 ```
 LD_LIBRARY_PATH=/tmp/stublib QT_QPA_PLATFORM=offscreen \
     python -m pytest tests -q
-→ 560 passed
+→ 563 passed
 ```
 
 | Group | Tests |
 |---|---|
 | Stage A | 153 |
 | Stage B | 208 |
-| **Stage C** | **199** |
-| **Total** | **560** |
+| **Stage C** | **202** |
+| **Total** | **563** |
 
 Stage C by file: `test_script` 43, `test_tts` 52, `test_narration` 39,
 `test_narration_ui` 27, `test_cli_voice` 14, `test_checks_voice` 12,
@@ -267,13 +277,17 @@ regression test:
 
 ## 8. Known limitations
 
-1. **Real Kokoro inference was not executed in this environment.** Model weights
-   could not be downloaded here: `huggingface.co`, `hf-mirror.com` and
-   `download.pytorch.org` all close the TLS connection, and no PyPI package
-   bundles the weights. Everything that does not need the model itself is
-   verified; the model-dependent path (probe with `deep_init_check`, the
-   self-test, real audio) is verified through the test double only.
-   **This must be confirmed on the target Windows machine** — see §11.
+1. **Real Kokoro inference was not executed in this environment.** The model
+   weights could not be obtained here. This was verified rather than assumed:
+   small JSON API calls to `api.github.com` succeed, while large binary downloads
+   (GitHub release assets and anything on `huggingface.co`) fail with
+   `TLS/SSL connection has been closed (EOF)`. Kokoro ONNX weights are published
+   as GitHub release assets, and the matching `voices.npy` only on HuggingFace,
+   so neither can be fetched from this sandbox.
+   **What is verified:** the real `kokoro` 0.9.4 package, ONNX Runtime 1.30.0 and
+   the misaki phonemiser are detected, and 9 languages are read from the
+   installed pipeline's own table (§3). **What is not:** model initialisation,
+   preview audio and narration audio. Those need the weights — see §11.
 2. **The manual matrix ran with the test double**, not a real voice. Re-run with
    `--engine real` for real-weights evidence.
 3. **No scene rendering, no video output, no images.** Stage C stops at narration
@@ -289,8 +303,10 @@ regression test:
    Windows.
 8. **Windows paths are unit-tested but not executed on Windows here**; this
    environment is Linux.
-
----
+9. **The test suite is now hermetic with respect to the optional dependency.**
+   Installing the real `kokoro` package initially broke four tests that assumed
+   it was absent; they now force the condition they need, so they mean the same
+   thing on any machine.
 
 ## 9. Stage C gate (directive section 62)
 
@@ -303,16 +319,16 @@ regression test:
 | 5 | Export works | ✅ | `test_script.py`, `test_cli_voice.py` (refuses to overwrite) |
 | 6 | Unicode works | ✅ | `test_script.py` (Hindi, mixed, punctuation, currency, quotes) |
 | 7 | Script persistence works | ✅ | matrix 16, `test_narration_ui.py` |
-| 8 | Kokoro is actually detected | ✅ code / ⚠️ real weights | `test_checks_voice.py`; §4 |
-| 9 | Kokoro model is actually validated | ✅ code / ⚠️ real weights | `deep_init_check` loads the model; §4 |
+| 8 | Kokoro is actually detected | ✅ **real package** | §3: kokoro 0.9.4, onnxruntime 1.30.0, misaki |
+| 9 | Kokoro model is actually validated | ✅ code / ⚠️ needs weights | `deep_init_check` loads the model; weights absent (§8.1) |
 | 10 | Voices dynamically discovered | ✅ | `test_tts.py`, `test_tts_jobs.py`; §3 |
-| 11 | Languages dynamically discovered | ✅ | `test_tts.py`; §3 |
+| 11 | Languages dynamically discovered | ✅ **real package** | 9 languages from `kokoro.pipeline.LANG_CODES`; §3 |
 | 12 | Language filtering works | ✅ | `test_narration_ui.py` |
 | 13 | Voice filtering works | ✅ | `test_narration_ui.py` (gender, search, favourites) |
-| 14 | Voice preview works | ✅ code / ⚠️ real weights | `test_tts.py`, `test_tts_jobs.py` |
+| 14 | Voice preview works | ✅ code / ⚠️ needs weights | `test_tts.py`, `test_tts_jobs.py` |
 | 15 | Speed works | ✅ | matrix 6 (9.00 s → 6.00 s) |
 | 16 | Volume works | ✅ | `test_tts.py` (peak-limited, 0–125%) |
-| 17 | Real narration generation works | ✅ pipeline / ⚠️ real weights | §5 |
+| 17 | Real narration generation works | ✅ pipeline / ⚠️ needs weights | §5 |
 | 18 | WAV validation works | ✅ | `test_tts.py` (truncated, zero-length, bad header) |
 | 19 | Actual duration recorded | ✅ | matrix 1/7; estimated 5.6 s vs measured 5.571 s |
 | 20 | Narration status works | ✅ | seven states, `test_narration.py` |
@@ -329,9 +345,10 @@ regression test:
 | 31 | Stage B tests still pass | ✅ | 208 passed |
 | 32 | Stage C tests pass | ✅ | 198 passed |
 
-**31 of 32 items are fully verified.** Items 8, 9, 14 and 17 are verified in code
-and against the test double, but not against real Kokoro weights, because the
-weights cannot be downloaded in this environment (§8.1).
+**29 of 32 items are fully verified.** Items 8 and 11 are verified against the
+real installed `kokoro` package. Items 9, 14 and 17 are verified in code and
+against the test double, but not against real Kokoro weights, because the weights
+cannot be downloaded in this environment (§8.1).
 
 ---
 
@@ -347,7 +364,7 @@ python run_studio.py --data-root D:\MotionStudio     # portable data folder
 **Tests:**
 
 ```
-python -m pytest tests -q                            # 560 tests
+python -m pytest tests -q                            # 563 tests
 python -m pytest tests/test_narration.py -q          # narration pipeline
 python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine real
 python -m app.cli.main voice check                   # engine readiness
@@ -378,8 +395,11 @@ Stage C gate items 8, 9, 14 and 17 stay marked as code-verified only.
 
 ## 12. Statement
 
-No known P0 or P1 bugs remain in the Stage C workflow. All 560 automated tests
-pass and all 16 manual scenarios pass. **Real Kokoro audio generation has not
-been verified in this environment** — the model weights cannot be downloaded
-here — so the stage is **not** declared complete until §11 has been run on the
-target machine. Everything else in the gate is verified with the evidence above.
+No known P0 or P1 bugs remain in the Stage C workflow. All 563 automated tests
+pass and all 16 manual scenarios pass. Kokoro detection and language discovery
+are verified against the real installed package (0.9.4). **Real Kokoro audio
+generation has not been verified in this environment** — the model weights cannot
+be downloaded here, which was confirmed by testing the network rather than
+assuming it — so the stage is **not** declared complete until §11 has been run on
+the target machine. Everything else in the gate is verified with the evidence
+above.

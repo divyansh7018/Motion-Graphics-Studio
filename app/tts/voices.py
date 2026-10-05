@@ -170,10 +170,17 @@ class VoiceCatalogue:
         return text + "."
 
     def blocker(self) -> str:
-        """Why the listed voices cannot generate yet, if they cannot."""
+        """Why the listed voices cannot generate yet, if they cannot.
+
+        Falls back to the discovery ``reason`` when the catalogue is empty: with
+        no voices there is nothing to carry a note, and an empty Voice panel with
+        no explanation is exactly what section 54 forbids.
+        """
         for voice in self.voices:
             if not voice.available and voice.note:
                 return voice.note
+        if not self.voices and self.reason:
+            return self.reason
         return ""
 
 

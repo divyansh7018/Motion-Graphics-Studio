@@ -112,7 +112,7 @@ Not in this stage (by design): projects, script, narration, scenes, rendering.
 * lazy model load inside the job, one engine instance per job, released
   afterwards; sequential generation, no parallel workers, no fork
 * CLI: `motion-studio script|voice|narration …`
-* 560 automated tests in total (199 added in this stage)
+* 563 automated tests in total (202 added in this stage)
 
 ---
 

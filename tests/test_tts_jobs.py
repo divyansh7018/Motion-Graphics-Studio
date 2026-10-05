@@ -131,13 +131,16 @@ def test_the_scan_job_honours_a_configured_model_dir(service, paths, settings, k
 
 
 def test_a_configured_dir_that_does_not_exist_reports_zero_voices(service, paths, settings) -> None:
+    """No voice files means no voices - but the languages the installed pipeline
+    declares are still reported, and no voice is claimed to work (section 6)."""
     settings.voice.model_dir = str(paths.data_root / "no-such-model")
     context = make_context(service, paths, settings)
 
     result = tts_jobs.voice_scan_job(context)
 
     assert result["voices"] == []
-    assert result["languages"] == []
+    assert all(not voice["available"] for voice in result["voices"])
+    assert result["blocker"], "an empty catalogue must explain itself"
 
 
 def test_the_preview_job_reports_progress_and_writes_a_temp_file(

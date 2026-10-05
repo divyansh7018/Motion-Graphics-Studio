@@ -155,13 +155,42 @@ def test_importing_a_binary_file_is_refused(tmp_path: Path, capsys) -> None:
 # voice
 # --------------------------------------------------------------------------
 
-def test_voice_check_reports_a_missing_engine(tmp_path: Path, capsys) -> None:
+def test_voice_check_reports_a_missing_engine(tmp_path: Path, capsys, monkeypatch) -> None:
+    # Forced, not assumed: with the real package installed this machine reports
+    # it as present, which is correct but not what this test is about.
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(
+        capabilities, "probe_package",
+        lambda name="kokoro": (False, "", "No module named 'kokoro'"),
+    )
     code = run_cli(tmp_path, "voice", "check")
     out = capsys.readouterr().out
 
     assert code == 2
     assert "not installed" in out
     assert "What to do" in out
+
+
+def test_voice_check_reports_a_real_installation(tmp_path: Path, capsys) -> None:
+    """With the package present the report must say so, and still name the gap."""
+    import importlib.util
+
+    if importlib.util.find_spec("kokoro") is None:
+        pytest.skip("the kokoro package is not installed on this machine")
+
+    code = run_cli(tmp_path, "voice", "check")
+    out = capsys.readouterr().out
+
+    assert "Kokoro      :" in out
+    assert "Package     :" in out
+    assert "Runtime     :" in out
+    # Either the engine is fully ready, or the user is told what to do next.
+    if "Initialised : yes" in out:
+        assert code == 0
+    else:
+        assert code == 2
+        assert "What to do" in out
 
 
 def test_voice_list_reads_the_model_folder(tmp_path: Path, kokoro_dir: Path, capsys) -> None:

@@ -42,7 +42,14 @@ def _with_model(context: CheckContext, kokoro_dir: Path) -> CheckContext:
 # Nothing installed
 # --------------------------------------------------------------------------
 
-def test_a_missing_engine_is_reported_with_a_fix(context) -> None:
+def test_a_missing_engine_is_reported_with_a_fix(context, monkeypatch) -> None:
+    # Forced, not assumed: this machine may well have Kokoro installed.
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(
+        capabilities, "probe_package",
+        lambda name="kokoro": (False, "", "No module named 'kokoro'"),
+    )
     result = items.check_kokoro(context)
 
     assert result.check_id == "voice.kokoro"
@@ -53,7 +60,16 @@ def test_a_missing_engine_is_reported_with_a_fix(context) -> None:
     assert "optional" in result.why.lower(), "narration must not look mandatory"
 
 
-def test_the_voice_checks_never_invent_voices(context) -> None:
+def test_the_voice_checks_never_invent_voices(context, monkeypatch) -> None:
+    # Forced, not assumed: with Kokoro installed the language check is READY,
+    # which is correct but not what this test is about.
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(
+        capabilities, "probe_package",
+        lambda name="kokoro": (False, "", "No module named 'kokoro'"),
+    )
+    monkeypatch.setattr(capabilities, "_language_codes_from_engine", lambda: {})
     voices = items.check_voices(context)
     languages = items.check_languages(context)
 

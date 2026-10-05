@@ -355,12 +355,21 @@ def probe_voices(model: ModelInfo,
 
     codes = _language_codes_from_engine()
     if codes:
-        languages = sorted({
-            label for voice in voices
-            for key, label in codes.items()
+        # Always return language *codes*, never the engine's display labels: the
+        # same field is fed by the voice-id prefix fallback below, and callers
+        # (the Voice panel filter, the System Check) treat it as a code. Mixing
+        # the two printed nonsense such as "English (US) (American English)".
+        matched = sorted({
+            key for voice in voices
+            for key in codes
             if voice.lower().startswith(key.lower())
         })
-        return voices, languages, "engine"
+        if matched:
+            return voices, matched, "engine"
+        # Voices are not on disk yet, but the installed pipeline still declares
+        # which languages it supports.  Reporting them is what section 6 asks
+        # for, and no voice is claimed to work.
+        return voices, sorted(codes), "engine"
 
     # No engine table: group by the voice-id prefix Kokoro uses.  Reported with
     # an explicit source so the interface can label it honestly.

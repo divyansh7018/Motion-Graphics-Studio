@@ -209,7 +209,14 @@ def test_the_script_page_shows_narration_state(context, open_project, qapp) -> N
 # Narration page - no engine installed
 # --------------------------------------------------------------------------
 
-def test_the_narration_page_reports_a_missing_engine(context, qapp) -> None:
+def test_the_narration_page_reports_a_missing_engine(context, qapp, monkeypatch) -> None:
+    # Forced, not assumed: the real package may be installed on this machine.
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(
+        capabilities, "probe_package",
+        lambda name="kokoro": (False, "", "No module named 'kokoro'"),
+    )
     page = _scanned_page(context)
 
     assert page.engine_grid.value("Package") == "not installed"

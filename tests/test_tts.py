@@ -166,8 +166,21 @@ def test_requirements_summary_is_serialisable(kokoro_dir: Path) -> None:
 # Voice catalogue (sections 5-8, 33)
 # --------------------------------------------------------------------------
 
-def test_voices_are_listed_even_when_the_engine_cannot_run(kokoro_dir: Path) -> None:
-    """Section 33: the user must see what was found, and why it cannot be used."""
+def test_voices_are_listed_even_when_the_engine_cannot_run(
+    kokoro_dir: Path, monkeypatch
+) -> None:
+    """Section 33: the user must see what was found, and why it cannot be used.
+
+    The package is forced missing rather than assumed missing, so the test means
+    the same thing on a machine that has Kokoro installed as on one that does
+    not.
+    """
+    import app.tts.capabilities as capabilities
+
+    monkeypatch.setattr(
+        capabilities, "probe_package",
+        lambda name="kokoro": (False, "", "No module named 'kokoro'"),
+    )
     catalogue = discover_voices(status=probe_kokoro(model_dir=kokoro_dir))
 
     assert catalogue.count == len(VOICE_IDS)
@@ -636,3 +649,62 @@ def test_a_track_with_no_recorded_details_is_stale() -> None:
 
     assert report.stale is True
     assert "no recorded generation details" in report.reasons
+
+
+# --------------------------------------------------------------------------
+# regression: the language list must hold codes on every path
+# --------------------------------------------------------------------------
+
+@pytest.fixture()
+def engine_language_table(monkeypatch):
+    """Force the engine's language table, whatever is installed on this machine.
+
+    Shaped like the real ``kokoro.pipeline.LANG_CODES``: code -> display label.
+    """
+    import app.tts.capabilities as capabilities
+
+    table = {
+        "a": "American English", "b": "British English", "h": "hi",
+        "j": "Japanese", "z": "Mandarin Chinese",
+    }
+    monkeypatch.setattr(capabilities, "_language_codes_from_engine", lambda: dict(table))
+    return table
+
+
+def test_languages_are_codes_not_display_labels(kokoro_dir: Path, engine_language_table) -> None:
+    """BUG REGRESSION: the System Check printed "English (US) (American English)".
+
+    ``probe_voices`` returned the engine's display labels on one path and
+    voice-id prefixes on the other, so the same field held two different kinds of
+    value.  Callers treat it as a code, so labels leaked into the interface.
+    """
+    from app.tts.capabilities import probe_kokoro
+
+    status = probe_kokoro(model_dir=kokoro_dir)
+
+    # The fixture holds voices for a, b, h, j and z - and every entry must be a
+    # one-letter code, never the engine's display label.
+    assert status.languages == ["a", "b", "h", "j", "z"]
+    assert all(len(code) == 1 for code in status.languages), "codes, never labels"
+    assert not any(" " in code for code in status.languages)
+    assert "American English" not in status.languages
+    assert status.language_source == "engine"
+
+
+def test_the_installed_pipeline_reports_its_languages_without_weights(
+    tmp_path: Path, engine_language_table
+) -> None:
+    """Section 6: show what the installed configuration supports.
+
+    The weights may not be downloaded yet; the languages the pipeline declares
+    are still true and useful, and no voice is claimed to work.
+    """
+    from app.tts.capabilities import probe_kokoro
+    from app.tts.voices import discover_voices
+
+    status = probe_kokoro(model_dir=tmp_path / "no-model-here")
+    catalogue = discover_voices(status=status)
+
+    assert sorted(status.languages) == sorted(engine_language_table)
+    assert catalogue.count == 0, "no voice files means no voices"
+    assert catalogue.available == []
