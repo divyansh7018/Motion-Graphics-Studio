@@ -238,19 +238,19 @@ machine that has the model installed for the real-weights evidence.
 ```
 LD_LIBRARY_PATH=/tmp/stublib QT_QPA_PLATFORM=offscreen \
     python -m pytest tests -q
-→ 570 passed
+→ 578 passed
 ```
 
 | Group | Tests |
 |---|---|
 | Stage A | 153 |
 | Stage B | 208 |
-| **Stage C** | **209** |
-| **Total** | **570** |
+| **Stage C** | **217** |
+| **Total** | **578** |
 
 Stage C by file: `test_script` 43, `test_tts` 54, `test_narration` 39,
-`test_narration_ui` 27, `test_cli_voice` 19, `test_checks_voice` 12,
-`test_tts_jobs` 9 — 203 in the new files, plus 3 new smoke-test cases and
+`test_narration_ui` 35, `test_cli_voice` 19, `test_checks_voice` 12,
+`test_tts_jobs` 9 — 211 in the new files, plus 3 new smoke-test cases and
 3 window-level tests added to existing suites.
 
 Lint: `ruff check app/ tests/ scripts/ installer/ run_studio.py --select F,E9`
@@ -263,6 +263,8 @@ regression test:
 
 | Bug | Consequence if shipped | Test |
 |---|---|---|
+| **Pressing Generate called `mark_narration_generating` on the `ProjectController`, which does not have it** (it lives on `ProjectService`) | **every** Generate click raised `AttributeError` — the core Stage C action did not work at all | `test_narration_ui.py::test_generate_is_reachable_from_a_real_window` |
+| Picking a narration language only changed the dropdown; the project kept its old language | following the documented Language → Voice → Generate flow was refused with "change the language", the thing the user had just done | `test_narration_ui.py::test_choosing_a_language_records_it_on_the_project` |
 | Every TTS job called `context.progress.report(...)`, a method Stage A's `ProgressReporter` does not have | **every** preview and narration job crashed the instant it reported progress | `test_tts_jobs.py` (all four job bodies) |
 | `generate_narration` never recorded the preprocessing config it used | the settings hash could never be reproduced, so **every** track read as STALE on the next refresh | `test_narration.py::test_a_track_is_not_stale_after_reopening_without_a_probe` |
 | The staleness snapshot omitted the model version | same permanent-STALE symptom | same test, plus `test_a_real_model_change_is_still_reported_as_stale` |
@@ -307,7 +309,10 @@ regression test:
    Windows.
 8. **Windows paths are unit-tested but not executed on Windows here**; this
    environment is Linux.
-9. **The test suite is now hermetic with respect to the optional dependency.**
+9. **Two of the bugs above were only reachable through the real window**, and were
+   found by measuring coverage and then executing the paths no test touched.
+   `narration_view._generate` had 0% coverage before this pass.
+10. **The test suite is now hermetic with respect to the optional dependency.**
    Installing the real `kokoro` package initially broke four tests that assumed
    it was absent; they now force the condition they need, so they mean the same
    thing on any machine.
@@ -368,7 +373,7 @@ python run_studio.py --data-root D:\MotionStudio     # portable data folder
 **Tests:**
 
 ```
-python -m pytest tests -q                            # 570 tests
+python -m pytest tests -q                            # 578 tests
 python -m pytest tests/test_narration.py -q          # narration pipeline
 python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine real
 python -m app.cli.main voice check                   # engine readiness
@@ -399,7 +404,7 @@ Stage C gate items 8, 9, 14 and 17 stay marked as code-verified only.
 
 ## 12. Statement
 
-No known P0 or P1 bugs remain in the Stage C workflow. All 570 automated tests
+No known P0 or P1 bugs remain in the Stage C workflow. All 578 automated tests
 pass and all 16 manual scenarios pass. Kokoro detection and language discovery
 are verified against the real installed package (0.9.4). **Real Kokoro audio
 generation has not been verified in this environment** — the model weights cannot

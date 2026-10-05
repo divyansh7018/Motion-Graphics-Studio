@@ -4,7 +4,7 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 570 tests passing** (Stage A 153 + Stage B 208 + Stage C 209). See
+**Current status: 578 tests passing** (Stage A 153 + Stage B 208 + Stage C 217). See
 `STAGE_A_REPORT.md` and `STAGE_B_REPORT.md` for the exact runs.
 
 ---

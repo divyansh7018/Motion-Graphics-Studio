@@ -494,7 +494,13 @@ class NarrationPage(Page):
             self.advanced_grid.add("Language source", self.catalogue.language_source)
 
     def _on_language_changed(self) -> None:
-        """Changing language clears a voice that does not support it (section 7)."""
+        """Changing language records the choice and clears an incompatible voice.
+
+        Recording matters: generation validates the stored language against the
+        chosen voice, so a language that was only ever held in the combo would
+        leave the user unable to generate - told to "change the language" they
+        had already changed (section 7).
+        """
         if self._loading:
             return
         self._refresh_voice_table()
@@ -503,6 +509,9 @@ class NarrationPage(Page):
         if controller is None or not controller.is_open:
             return
         language = self.language_combo.currentData() or ""
+        if language and language != "all":
+            controller.service.set_voice_settings(language=language)
+            controller.refresh_dirty()
         current_voice = self.project.voice.voice if self.project else ""
         if not current_voice or language in ("", "all"):
             return
@@ -619,9 +628,17 @@ class NarrationPage(Page):
         language = self.language_combo.currentData() or ""
         ok, message = validate_voice_choice(self.catalogue, voice_id, "" if language == "all" else language)
         voice = self.catalogue.find(voice_id)
+        # With "All languages" selected there is no language to validate against,
+        # so the voice's own language becomes the narration language.  Without
+        # this the project would keep its previous language and refuse to
+        # generate a voice that does not match it.
+        chosen_language = "" if language in ("", "all") else language
+        if not chosen_language and voice is not None and voice.language:
+            chosen_language = voice.language[:1].lower()
         controller.service.set_voice_settings(
             voice=voice_id,
             gender=voice.gender if voice else "",
+            language=chosen_language or None,
         )
         controller.refresh_dirty()
         if voice is not None and not voice.available:
@@ -720,7 +737,9 @@ class NarrationPage(Page):
             return
 
         self._store_settings()
-        controller.mark_narration_generating()
+        # The flag lives on the service, not the controller: calling it on the
+        # controller raised AttributeError the moment Generate was pressed.
+        controller.service.mark_narration_generating()
         self.generate_button.setEnabled(False)
         self.regenerate_button.setEnabled(False)
         self._refresh_status()

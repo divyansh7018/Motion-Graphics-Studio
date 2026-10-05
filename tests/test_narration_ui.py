@@ -394,3 +394,303 @@ def test_a_new_voice_file_appears_after_a_refresh(context, kokoro_dir, qapp) -> 
     _scan(context, page)              # ...which lands here in the test
 
     assert page.voice_table.rowCount() == len(VOICE_IDS) + 1
+
+
+# --------------------------------------------------------------------------
+# The two core user actions, driven through the real job manager
+# --------------------------------------------------------------------------
+
+@pytest.fixture()
+def dialogs(monkeypatch):
+    """Neutralise modal dialogs and record what they said.
+
+    A real ``QMessageBox`` blocks forever headless, and the tests care about the
+    message, not the window.
+    """
+    from PySide6 import QtWidgets
+
+    shown: list[tuple[str, str]] = []
+
+    def record(kind):
+        def handler(*args, **kwargs):
+            title = args[1] if len(args) > 1 else ""
+            text = args[2] if len(args) > 2 else ""
+            shown.append((kind, f"{title} {text}"))
+            return QtWidgets.QMessageBox.StandardButton.Ok
+
+        return staticmethod(handler)
+
+    for name in ("warning", "information", "critical"):
+        monkeypatch.setattr(QtWidgets.QMessageBox, name, record(name))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes))
+    return shown
+
+
+@pytest.fixture()
+def narration_window(qapp, tmp_path: Path, ready_engine):
+    """A real MainWindow with the Narration page, so job dispatch is real.
+
+    ``MainWindow._on_job_finished`` is what routes a finished job back to the
+    page.  Testing the page alone would skip that wiring - and the wiring is
+    exactly where the Generate crash was hiding.
+    """
+    from app.core.paths import AppPaths
+    from app.jobs.manager import JobManager
+    from app.ui.context import StartupInfo, create_context
+    from app.ui.main_window import MainWindow
+
+    paths = AppPaths(data_root=tmp_path / "appdata",
+                     source_root=Path(__file__).resolve().parents[1], reason="pytest-ui")
+    paths.ensure()
+    jobs = JobManager()
+    context = create_context(paths, jobs, startup=StartupInfo(
+        data_root_reason=paths.reason, directories_created=0, stale_temp_removed=0))
+    window = MainWindow(context, jobs)
+    yield window, context
+    window.deleteLater()
+    jobs.shutdown(timeout_ms=3000)
+
+
+def _pick_language(page, code: str) -> None:
+    """Choose a narration language in the dropdown the way a user would."""
+    index = page.language_combo.findData(code)
+    assert index >= 0, f"language {code!r} is not offered"
+    page.language_combo.setCurrentIndex(index)
+
+
+def _choose_voice(page, voice_id: str) -> None:
+    """Select a voice in the table the way a user would, then apply it."""
+    from PySide6.QtCore import Qt
+
+    for row in range(page.voice_table.rowCount()):
+        item = page.voice_table.item(row, 0)
+        if item is not None and item.data(Qt.UserRole) == voice_id:
+            page.voice_table.selectRow(row)
+            page._apply_voice()
+            return
+    raise AssertionError(f"voice {voice_id!r} is not in the table")
+
+
+def wait_until(predicate, timeout: float = 20.0) -> bool:
+    """Pump the Qt event loop until *predicate* holds, or time runs out."""
+    import time
+
+    from PySide6.QtCore import QCoreApplication
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.005)
+    return predicate()
+
+
+@pytest.fixture()
+def ready_engine(monkeypatch):
+    """Route the job's engine factory to the test double."""
+    import app.tts.jobs as tts_jobs
+
+    from tests.fake_tts import FakeKokoroEngine
+
+    engine = FakeKokoroEngine(sample_rate=24000)
+    monkeypatch.setattr(tts_jobs, "build_engine", lambda paths=None, model_path=None: engine)
+    return engine
+
+
+def test_generate_runs_one_job_and_produces_ready_narration(
+    narration_window, kokoro_dir, dialogs
+) -> None:
+    """Sections 28-30: one press, one job, real audio, honest status."""
+    window, context = narration_window
+    from app.project.service import CreateRequest
+
+    context.settings.voice.model_dir = str(kokoro_dir)
+    context.projects.service.create_project(
+        CreateRequest(name="Gen Test", folder=kokoro_dir.parent / "Gen Test")
+    )
+    context.projects.service.set_script_text("Hello. This is a local narration test.")
+
+    page = window.narration_page
+    _scan(context, page)
+    _pick_language(page, "h")
+    _choose_voice(page, "hf_alpha")
+
+    page._generate()
+
+    assert context.jobs.active_count() == 1, "one press starts exactly one job"
+    assert not dialogs, f"generation should not need to ask anything: {dialogs}"
+
+    assert wait_until(lambda: context.jobs.active_count() == 0), "the job never finished"
+    assert wait_until(lambda: page.status_grid.value("Status").lower().startswith("ready")), \
+        f"narration never became ready: {page.status_hint.text()}"
+
+    wav = context.projects.layout.root / "audio" / "narration" / "narration_full.wav"
+    assert wav.is_file()
+    assert page.generate_button.isEnabled() is True, "the button must come back"
+
+
+def test_generate_refuses_when_the_script_is_empty(
+    narration_window, kokoro_dir, dialogs
+) -> None:
+    """Section 48: a clear explanation instead of a silent no-op."""
+    window, context = narration_window
+    from app.project.service import CreateRequest
+
+    context.settings.voice.model_dir = str(kokoro_dir)
+    context.projects.service.create_project(
+        CreateRequest(name="Empty Test", folder=kokoro_dir.parent / "Empty Test")
+    )
+    context.projects.service.set_script_text("")
+
+    page = window.narration_page
+    _scan(context, page)
+    _pick_language(page, "h")
+    _choose_voice(page, "hf_alpha")
+
+    page._generate()
+
+    assert any("nothing to narrate" in text.lower() for _kind, text in dialogs), dialogs
+    assert context.jobs.active_count() == 0, "no job may be started"
+
+
+def test_a_second_generate_is_refused_while_one_is_running(
+    narration_window, kokoro_dir, dialogs
+) -> None:
+    """Sections 28-29: no duplicate generation, no second model instance."""
+    window, context = narration_window
+    from app.project.service import CreateRequest
+
+    context.settings.voice.model_dir = str(kokoro_dir)
+    context.projects.service.create_project(
+        CreateRequest(name="Twice Test", folder=kokoro_dir.parent / "Twice Test")
+    )
+    context.projects.service.set_script_text("A sentence that takes a moment to speak.")
+
+    page = window.narration_page
+    _scan(context, page)
+    _pick_language(page, "h")
+    _choose_voice(page, "hf_alpha")
+
+    page._generate()
+    page.generate_button.setEnabled(True)   # pretend the user clicked again
+    page._generate()
+
+    assert context.jobs.active_count() <= 1, "still at most one job"
+    wait_until(lambda: context.jobs.active_count() == 0)
+
+
+def test_preview_speaks_without_touching_the_project(
+    narration_window, kokoro_dir, dialogs
+) -> None:
+    """Sections 9-10: preview is separate from generation and leaves no trace."""
+    window, context = narration_window
+    from app.project.service import CreateRequest
+
+    context.settings.voice.model_dir = str(kokoro_dir)
+    context.projects.service.create_project(
+        CreateRequest(name="Prev Test", folder=kokoro_dir.parent / "Prev Test")
+    )
+    context.projects.service.set_script_text("A script that must not be narrated here.")
+
+    page = window.narration_page
+    _scan(context, page)
+    _pick_language(page, "h")
+    _choose_voice(page, "hf_alpha")
+    page.preview_edit.setPlainText("A short preview sentence.")
+    before = sorted(p.name for p in context.projects.layout.root.rglob("*.wav"))
+
+    page._preview()
+    assert wait_until(lambda: "Spoke" in page.preview_hint.text()), page.preview_hint.text()
+
+    after = sorted(p.name for p in context.projects.layout.root.rglob("*.wav"))
+    assert after == before, "a preview must never write into the project"
+    assert "Nothing was added to the project" in page.preview_hint.text()
+
+
+def test_preview_without_text_explains_instead_of_failing(
+    narration_window, kokoro_dir, dialogs
+) -> None:
+    window, context = narration_window
+    from app.project.service import CreateRequest
+
+    context.settings.voice.model_dir = str(kokoro_dir)
+    context.projects.service.create_project(
+        CreateRequest(name="NoText Test", folder=kokoro_dir.parent / "NoText Test")
+    )
+
+    page = window.narration_page
+    _scan(context, page)
+    _choose_voice(page, "hf_alpha")
+    page.preview_edit.setPlainText("   ")
+
+    page._preview()
+
+    assert "Type something" in page.preview_hint.text()
+    assert context.jobs.active_count() == 0
+
+
+# --------------------------------------------------------------------------
+# regression: the documented Language -> Voice -> Generate flow
+# --------------------------------------------------------------------------
+
+def test_choosing_a_language_records_it_on_the_project(context, open_project, kokoro_dir, qapp) -> None:
+    """BUG REGRESSION: picking a language only changed the dropdown.
+
+    ``project.voice.language`` stayed at the project default, so generating with
+    a voice for the newly chosen language was refused with "the voice does not
+    support the selected language ... change the language" - telling the user to
+    do the thing they had just done (section 7).
+    """
+    _use_model(context, kokoro_dir)
+    page = _scanned_page(context)
+
+    assert context.projects.project.voice.language != "h"
+    _pick_language(page, "h")
+
+    assert context.projects.project.voice.language == "h"
+
+
+def test_choosing_a_voice_with_all_languages_adopts_its_language(
+    context, open_project, kokoro_dir, qapp
+) -> None:
+    """With no language filter, the voice's own language becomes the setting."""
+    _use_model(context, kokoro_dir)
+    page = _scanned_page(context)
+
+    index = page.language_combo.findData("all")
+    page.language_combo.setCurrentIndex(index)
+    _choose_voice(page, "hf_alpha")
+
+    assert context.projects.project.voice.voice == "hf_alpha"
+    assert context.projects.project.voice.language == "h"
+
+
+def test_generate_is_reachable_from_a_real_window(narration_window, kokoro_dir, dialogs) -> None:
+    """BUG REGRESSION: pressing Generate raised AttributeError.
+
+    ``_generate`` called ``mark_narration_generating`` on the ProjectController,
+    which does not have it - the method lives on ProjectService.  Every Generate
+    click crashed.  Only an end-to-end test through the window catches that.
+    """
+    window, context = narration_window
+    from app.project.service import CreateRequest
+
+    context.settings.voice.model_dir = str(kokoro_dir)
+    context.projects.service.create_project(
+        CreateRequest(name="Reach Test", folder=kokoro_dir.parent / "Reach Test")
+    )
+    context.projects.service.set_script_text("Hello. This is a local narration test.")
+
+    page = window.narration_page
+    _scan(context, page)
+    _pick_language(page, "h")
+    _choose_voice(page, "hf_alpha")
+
+    page._generate()      # must not raise
+
+    assert not dialogs, f"no dialog should be needed: {dialogs}"
+    assert context.jobs.active_count() == 1
+    assert wait_until(lambda: context.jobs.active_count() == 0)
+    assert (context.projects.layout.root / "audio" / "narration" / "narration_full.wav").is_file()
