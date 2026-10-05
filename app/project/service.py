@@ -675,8 +675,9 @@ class ProjectService:
     def add_scene_from_template(self, template_key: str, content: Optional[dict] = None,
                                 **options) -> SceneSpec:
         """Add a scene built from the registry; the template defines the layout."""
-        from ..scene.templates import create_scene_from_template
+        from ..scene.templates import create_scene_from_template, default_templates_registered
 
+        default_templates_registered()
         self._require_session()
         created: dict = {}
 

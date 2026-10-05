@@ -755,6 +755,16 @@ def _scene_from_dict(data: Any) -> SceneSpec:
     return scene
 
 
+def _scene_from_dict_classmethod(cls, data: Any) -> SceneSpec:
+    return _scene_from_dict(data)
+
+
+# ``SceneSpec`` must parse its nested sections; the generic ``_Section.from_dict``
+# would leave ``elements``/``narration`` as raw dicts.  This was found by the
+# Stage D duplicate-scene test, which produced a copy whose elements were dicts.
+SceneSpec.from_dict = classmethod(_scene_from_dict_classmethod)  # type: ignore[assignment]
+
+
 # --------------------------------------------------------------------------
 # Assets
 # --------------------------------------------------------------------------

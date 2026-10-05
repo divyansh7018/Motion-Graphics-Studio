@@ -73,6 +73,25 @@ TEXT_ALIGNMENTS: tuple[str, ...] = ("left", "center", "right")
 DEFAULT_TEXT_SIZE = 0.12
 
 
+def build_asset_paths(project: Any, project_dir: Optional[Path]) -> dict:
+    """Absolute path per asset id, from the project's own asset list.
+
+    Kept here (not in :mod:`app.scene.storyboard`) so validation can use it
+    without a circular import.
+    """
+    paths: dict = {}
+    if project is None or project_dir is None:
+        return paths
+    for asset in getattr(project, "assets", []) or []:
+        try:
+            resolved = asset.resolve(Path(project_dir))
+        except Exception:
+            continue
+        if asset.id:
+            paths[asset.id] = resolved
+    return paths
+
+
 @dataclass
 class ElementIssue:
     """Something worth telling the user about, found while laying out."""

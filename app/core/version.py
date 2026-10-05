@@ -15,15 +15,17 @@ APP_ID = "motion-graphics-studio"
 APP_PUBLISHER = "Motion Graphics Studio"
 
 #: Semantic version of the desktop application itself.
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 #: Development stage currently implemented (see docs/ROADMAP.md).
 #: Stage A = application shell + settings + system check.
 #: Stage B = project system (project.json, save, autosave, recovery).
-APP_STAGE = "C"
+#: Stage C = script, Kokoro narration and voice.
+#: Stage D = scene engine, storyboard and responsive visual system.
+APP_STAGE = "D"
 
 #: Human readable stage label used in the UI.
-APP_STAGE_LABEL = "Stage C - Script, Kokoro narration and voice"
+APP_STAGE_LABEL = "Stage D - Scene engine, storyboard and responsive visuals"
 
 # --------------------------------------------------------------------------
 # On-disk schema versions.  Every persisted format carries its own version so

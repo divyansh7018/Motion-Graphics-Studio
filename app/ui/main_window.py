@@ -60,6 +60,7 @@ from .views.project_settings import ProjectSettingsPage
 from .views.narration_view import NarrationPage
 from .views.project_view import ProjectPage
 from .views.script_view import ScriptPage
+from .views.storyboard_view import StoryboardPage
 from .widgets.job_panel import JobProgressWidget
 
 LOGGER = get_logger("main_window")
@@ -72,6 +73,7 @@ PAGES: tuple[tuple[str, str, str, str], ...] = (
     ("project", "Project", "Create", "ready"),
     ("script", "Script", "Create", "ready"),
     ("narration", "Narration", "Create", "ready"),
+    ("storyboard", "Storyboard", "Create", "ready"),
     ("project_settings", "Project settings", "Create", "ready"),
     ("projects", "Projects", "Create", "ready"),
     ("system_check", "System check", "Start", "ready"),
@@ -81,7 +83,6 @@ FUTURE_PAGES: tuple[tuple[str, str, str], ...] = (
     # (label, section, stage note)
     ("Visuals", "Create", "Stage H - images"),
     ("Music", "Create", "Stage E - audio"),
-    ("Storyboard", "Create", "Stage D - scenes"),
     ("Timeline", "Advanced", "Stage D - timeline"),
     ("Render", "Advanced", "Stage F - renderer"),
     ("Video library", "Advanced", "Stage G - output"),
@@ -232,6 +233,7 @@ class MainWindow(QMainWindow):
         self.project_page = ProjectPage(self.context)
         self.script_page = ScriptPage(self.context)
         self.narration_page = NarrationPage(self.context)
+        self.storyboard_page = StoryboardPage(self.context)
         self.project_settings_page = ProjectSettingsPage(self.context)
         self.projects_page = ProjectBrowserPage(self.context)
         self.system_check_page = SystemCheckPage(self.context)
@@ -244,6 +246,7 @@ class MainWindow(QMainWindow):
             "project": self.project_page,
             "script": self.script_page,
             "narration": self.narration_page,
+            "storyboard": self.storyboard_page,
             "project_settings": self.project_settings_page,
             "projects": self.projects_page,
             "system_check": self.system_check_page,
@@ -468,6 +471,8 @@ class MainWindow(QMainWindow):
         if str(key) == "narration":
             # Voice discovery happens when the user gets here, not at start-up.
             self.narration_page.ensure_catalogue()
+        if str(key) == "storyboard":
+            self.storyboard_page.ensure_storyboard()
         if str(key) == "project_settings":
             self.project_settings_page.refresh()
         if str(key) == "welcome":
@@ -777,6 +782,12 @@ class MainWindow(QMainWindow):
             # The script page shows the narration state too.
             self.script_page.refresh()
             self.project_page.refresh()
+
+        if result.key == JobKeys.STORYBOARD_RENDER:
+            self.storyboard_page.on_storyboard_finished(result)
+
+        if result.key == JobKeys.SCENE_PREVIEW:
+            self.storyboard_page.on_preview_finished(result)
 
         if result.key == "diagnostics.smoke_test":
             self._show_smoke_result(result)

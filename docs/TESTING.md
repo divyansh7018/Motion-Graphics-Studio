@@ -4,8 +4,9 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 591 tests passing** (Stage A 153 + Stage B 208 + Stage C 230). See
-`STAGE_A_REPORT.md` and `STAGE_B_REPORT.md` for the exact runs.
+**Current status: 830 tests passing** (Stage A 153 + Stage B 208 + Stage C 230 +
+Stage D 239). See `STAGE_A_REPORT.md`, `STAGE_B_REPORT.md`, `STAGE_C_REPORT.md` and
+`STAGE_D_REPORT.md` for the exact runs.
 
 ---
 
@@ -24,6 +25,13 @@ restart, duplicate-generation and output-validation tests have actually been run
 | Narration jobs | the real job bodies with the real `ProgressReporter` and `CancelToken` | `test_tts_jobs.py` |
 | Voice / System Check | engine detection, voice + language discovery, filtering, the TTS self-test | `test_checks_voice.py` |
 | Script and Narration pages | every control does something real; nothing claims to work when it cannot | `test_narration_ui.py` |
+| Scene geometry & text | resolution-independent canvas, font discovery, responsive text fitting | `test_scene_canvas.py`, `test_scene_text.py` |
+| Scene motion | animation as a function of time, transitions, narration-driven timing, no max length | `test_scene_motion.py` |
+| Scene visuals | shapes, charts and the deterministic RGBA renderer at every aspect ratio | `test_scene_visual.py` |
+| Scene registry & validation | templates cross-checked against schema types; layout-level validation | `test_scene_registry.py` |
+| Scene jobs | storyboard and preview job bodies with real cancellation | `test_scene_jobs.py` |
+| Scene end-to-end | a real project on disk, saved, reopened, previewed at 4 aspect ratios | `test_scene_e2e_preview.py` |
+| Storyboard page | add/duplicate/rename/reorder/delete via the real window and JobManager | `test_storyboard_ui.py` |
 | Voice CLI | `script`, `voice` and `narration` commands, exit codes and messages | `test_cli_voice.py` |
 | End-to-end | folders → settings → FFmpeg → real encode → validation → cleanup → jobs → cancel | `app/diagnostics/smoke.py` |
 | Release check | 10 steps on a throw-away data folder, including the project lifecycle | `scripts/release_check.py` |
@@ -44,6 +52,9 @@ python -m pytest tests -q -k project             # everything project related
 # the sixteen Stage C manual scenarios, headless, with a printed pass/fail table
 # (--engine real uses the installed Kokoro instead of the test double)
 python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine fake
+
+# the sixteen Stage D manual scenarios, headless, rendering real preview pixels
+python scripts/stage_d_manual_matrix.py --data-root /tmp/mgs_stage_d
 
 # the ten Stage B manual scenarios, headless, with a printed pass/fail table
 python scripts/stage_b_manual_matrix.py --data-root /tmp/mgs_matrix

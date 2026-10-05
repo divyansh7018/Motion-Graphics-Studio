@@ -5,12 +5,13 @@ voice → images → scenes → timeline → audio → preview → MP4, all on o
 No account, no cloud, no subscription, no internet connection required for any
 core function.
 
-**Build stage: C — script and narration.** This build adds the script editor
-(plain and structured), local Kokoro-82M narration with dynamic voice and
-language discovery, voice preview, and narration generation to WAV. It keeps the
-Stage A shell (settings, logging, background jobs, system check) and the Stage B
-project system (`project.json`, autosave, recovery, browser) intact. Scene
-rendering and final video output arrive in later stages (see `docs/ROADMAP.md`).
+**Build stage: D — scene engine and storyboard.** This build adds a
+resolution-independent scene engine (text fitting, images, shapes, cards,
+numbers, charts), a scene registry, an animation/transitions foundation,
+narration-driven timing, and a Storyboard page with live, off-thread previews.
+It keeps the Stage A shell, the Stage B project system and the Stage C script +
+Kokoro narration intact. Final video rendering and QC arrive in later stages
+(see `docs/ROADMAP.md`).
 
 ---
 
@@ -42,8 +43,9 @@ rendering and final video output arrive in later stages (see `docs/ROADMAP.md`).
 | Narration generation to validated WAV, with measured duration | ✅ working |
 | Narration staleness, missing-file handling and regeneration | ✅ working |
 | Script and narration command line (`motion-studio script` / `voice` / `narration`) | ✅ working |
-| Automated test suite (591 tests) | ✅ passing |
-| Scenes, preview, render, QC | ⏳ later stages |
+| Automated test suite (830 tests) | ✅ passing |
+| Scenes, storyboard, scene preview | ✅ Stage D (this build) |
+| Final render, QC | ⏳ later stages |
 | Licensing, accounts, payments | ❌ not in this build (Phase 2, later) |
 
 Nothing in the interface pretends to work: pages for later stages are shown as
@@ -226,6 +228,7 @@ click away in every error dialog (`Copy details`).
 | `docs/STAGE_A_REPORT.md` | evidence that this build meets the Stage A gate |
 | `docs/STAGE_B_REPORT.md` | evidence that this build meets the Stage B gate |
 | `docs/STAGE_C_REPORT.md` | evidence that this build meets the Stage C gate |
+| `docs/STAGE_D_REPORT.md` | evidence that this build meets the Stage D gate |
 | `docs/PROJECT_FORMAT.md` | the versioned project file format (schema v2) |
 
 ---

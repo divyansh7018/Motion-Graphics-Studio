@@ -25,6 +25,7 @@ from .elements import (
     ELEMENT_KINDS,
     ElementIssue,
     LayoutContext,
+    build_asset_paths,
     layout_scene,
 )
 from .text import default_resolver
@@ -76,7 +77,8 @@ def _number(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _context(canvas: Canvas, project: Any = None, ctx: Optional[LayoutContext] = None) -> LayoutContext:
+def _context(canvas: Canvas, project: Any = None, ctx: Optional[LayoutContext] = None,
+             project_dir: Optional[Any] = None) -> LayoutContext:
     if ctx is not None:
         return ctx
     palette: dict = {}
@@ -93,18 +95,24 @@ def _context(canvas: Canvas, project: Any = None, ctx: Optional[LayoutContext] =
     def loader(family, size, bold, italic):
         return resolver.load(family, size=size, bold=bold, italic=italic)
 
+    from pathlib import Path as _Path
+
+    asset_root = None
+    if project_dir is not None:
+        asset_root = _Path(project_dir) / "assets"
     return LayoutContext(
         canvas=canvas,
         safe_area=canvas.safe_area(),
         palette=palette,
         font_loader=loader,
         font_family=str((palette or {}).get("font_family", "") or ""),
-        asset_root=getattr(project, "_asset_root", None),
+        asset_root=asset_root,
+        asset_paths=build_asset_paths(project, _Path(project_dir) if project_dir else None),
     )
 
 
 def validate_scene(scene: Any, *, canvas: Canvas, ctx: Optional[LayoutContext] = None,
-                   project: Any = None) -> SceneValidation:
+                   project: Any = None, project_dir: Optional[Any] = None) -> SceneValidation:
     """Validate one scene for one canvas."""
     result = SceneValidation()
     known_assets = set()
@@ -113,7 +121,7 @@ def validate_scene(scene: Any, *, canvas: Canvas, ctx: Optional[LayoutContext] =
 
     _check_scene_model(scene, result, known_assets)
 
-    layout_ctx = _context(canvas, project, ctx)
+    layout_ctx = _context(canvas, project, ctx, project_dir)
     layout = layout_scene(getattr(scene, "elements", []) or [], layout_ctx)
     seen_codes: set = set()
     for issue in layout.issues:
@@ -217,10 +225,12 @@ def _check_text_width_for_orientation(layout: Any, result: SceneValidation, canv
 
 
 def validate_scenes(scenes: Sequence[Any], *, canvas: Canvas,
-                    ctx: Optional[LayoutContext] = None, project: Any = None) -> SceneValidation:
+                    ctx: Optional[LayoutContext] = None, project: Any = None,
+                    project_dir: Optional[Any] = None) -> SceneValidation:
     result = SceneValidation()
     for index, scene in enumerate(scenes):
-        for issue in validate_scene(scene, canvas=canvas, ctx=ctx, project=project).issues:
+        for issue in validate_scene(scene, canvas=canvas, ctx=ctx, project=project,
+                                    project_dir=project_dir).issues:
             prefixed = ElementIssue(
                 issue.element_id, issue.code,
                 f"Scene {index + 1}: {issue.message}", issue.what_to_do, issue.severity)
@@ -228,11 +238,13 @@ def validate_scenes(scenes: Sequence[Any], *, canvas: Canvas,
     return result
 
 
-def validate_project_scenes(project: Any, *, canvas: Optional[Canvas] = None) -> SceneValidation:
+def validate_project_scenes(project: Any, *, canvas: Optional[Canvas] = None,
+                          project_dir: Optional[Any] = None) -> SceneValidation:
     """Validate every scene of a project at the project's own format."""
     if canvas is None:
         canvas = Canvas.from_project(project)
-    return validate_scenes(getattr(project, "scenes", []) or [], canvas=canvas, project=project)
+    return validate_scenes(getattr(project, "scenes", []) or [], canvas=canvas, project=project,
+                           project_dir=project_dir)
 
 
 def scene_issue_count(validation: SceneValidation, *codes: str) -> int:

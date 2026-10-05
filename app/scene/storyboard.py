@@ -24,7 +24,7 @@ from PIL import Image
 
 from .canvas import Canvas
 from .compose import render_scene
-from .elements import LayoutContext
+from .elements import LayoutContext, build_asset_paths
 from .text import default_resolver
 from .timing import Timeline, build_timeline
 from .validate import validate_scene
@@ -38,21 +38,6 @@ __all__ = [
     "render_thumbnails",
     "preview_frame_path",
 ]
-
-
-def build_asset_paths(project: Any, project_dir: Optional[Path]) -> dict:
-    """Absolute path per asset id, from the project's own asset list."""
-    paths: dict = {}
-    if project is None or project_dir is None:
-        return paths
-    for asset in getattr(project, "assets", []) or []:
-        try:
-            resolved = asset.resolve(Path(project_dir))
-        except Exception:
-            continue
-        if asset.id:
-            paths[asset.id] = resolved
-    return paths
 
 
 def build_context(project: Any, *, canvas: Optional[Canvas] = None,

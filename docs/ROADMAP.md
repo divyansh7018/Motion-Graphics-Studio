@@ -114,15 +114,30 @@ Not in this stage (by design): projects, script, narration, scenes, rendering.
 * CLI: `motion-studio script|voice|narration …`
 * 591 automated tests in total (230 added in this stage)
 
+## Stage D — scene engine and storyboard (complete)
+
+See ``docs/STAGE_D_REPORT.md`` for the full evidence.  Highlights:
+
+* A resolution-independent scene engine: positions are fractions of the frame and
+  sizes are fractions of the shorter edge, so one project lays out correctly in
+  landscape, portrait, square and 4K.  An AST test forbids hard-coded resolutions.
+* Visual elements: text (responsive fitting that never rewrites wording), images
+  (cover/contain/fill with a labelled placeholder when missing), shapes, cards,
+  numbers and charts (bar/column/line/area/pie/donut/sparkline).
+* A scene registry of ten templates; registration is the only step to add a type.
+* Animation as a pure function of time (enter/exit presets and tracks) and a
+  transitions foundation (fade/slide/zoom/wipe/push/dip).
+* Narration-driven timing with opt-in head/tail padding and **no maximum length**
+  (a ~3-hour timeline is tested).
+* A Storyboard page: add-from-template, duplicate, rename, reorder, delete as
+  single undoable edits, with live thumbnails and previews rendered off the Qt
+  thread by the Stage A job system.
+* 830 automated tests in total (239 added in this stage).
+
 ---
 
 ## Later stages (summary)
 
-
-**D — Scenes and storyboard.** Deterministic scene rendering, responsive layout
-for 1920×1080, 1080×1920, 1080×1080, 1080×1350, 1280×720 and custom sizes, text
-fitting with warnings before render, storyboard built from the real project
-scenes, draft/medium previews that are much faster than a final render.
 
 **E — Audio.** Narration + music + SFX mixing with narration dominant, ducking,
 clipping detection, optional subtitles with validation.
