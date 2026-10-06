@@ -226,9 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser.set_defaults(func=command_smoke_test)
 
     from .project import build_project_parser
+    from .scene import build_scene_parser
     from .voice import build_voice_parsers
 
     build_project_parser(subparsers)
+    build_scene_parser(subparsers)
     build_voice_parsers(subparsers)
 
     gui_parser = subparsers.add_parser("gui", help="Start the graphical application.")
@@ -249,6 +251,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if getattr(args, "command", None) == "project":
             return _dispatch_project(args)
+        if getattr(args, "command", None) == "scene":
+            return _dispatch_scene(args)
         if getattr(args, "command", None) in ("script", "voice", "narration"):
             return _dispatch_voice(args)
         return int(args.func(args))
@@ -280,6 +284,16 @@ def _dispatch_project(args) -> int:
     if getattr(args, "project_command", None):
         _print_header(paths)
     return run_project_command(args, paths, load_result.settings)
+
+
+def _dispatch_scene(args) -> int:
+    """Run a ``scene`` subcommand against a bootstrapped application."""
+    from .scene import run_scene_command
+
+    paths, load_result = _bootstrap(args)
+    if getattr(args, "scene_command", None):
+        _print_header(paths)
+    return run_scene_command(args, paths, load_result.settings)
 
 
 def _dispatch_voice(args) -> int:

@@ -78,7 +78,9 @@ NARRATION_SUBDIR = "audio/narration"
 NARRATION_FULL_FILENAME = "narration_full.wav"
 NARRATION_SCENE_TEMPLATE = "narration_scene_{index:03d}.wav"
 
-TRANSITION_TYPES: tuple[str, ...] = ("none", "fade", "cut", "slide", "zoom")
+TRANSITION_TYPES: tuple[str, ...] = (
+    "none", "cut", "fade", "slide", "zoom", "wipe", "push", "dip", "dip white",
+)
 
 ANCHORS: tuple[str, ...] = ("top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right")
 
@@ -700,11 +702,19 @@ class ElementSpec(_Section):
     text: str = ""
     asset_id: str = ""
     anchor: str = "center"
+    #: Normalised 0..1 offset from the anchor.  Resolution independent.
     position: dict = field(default_factory=lambda: {"x": 0.5, "y": 0.5})
     size: dict = field(default_factory=lambda: {"mode": "relative", "value": 0.12})
     fit: dict = field(default_factory=lambda: {"auto_fit": True, "max_lines": 3, "min_scale": 0.6})
     color: str = "#ffffff"
     animation: dict = field(default_factory=dict)
+    #: Explicit stack order.  ``0`` means "use the order in the scene list".
+    #: Z-order operations keep this in sync with the list order, so both the
+    #: editor and a hand-edited ``project.json`` agree (directive section 26).
+    z_index: int = 0
+    #: Locked elements are drawn normally but the editor will not let a stray
+    #: click move or delete them (directive section 34).
+    locked: bool = False
     extra: dict = field(default_factory=dict)
 
 
@@ -720,6 +730,13 @@ class SceneSpec(_Section):
     #: Manual duration in seconds.  When narration exists, its measured
     #: duration is authoritative (directive section 27).
     duration: float = 3.0
+    #: A disabled scene is skipped in the timeline and the final cut but kept in
+    #: the project, so a user can drop it in and out without deleting work
+    #: (directive section 34).  Defaults to enabled.
+    enabled: bool = True
+    #: Locked scenes refuse accidental edits in the editor.  Rendering is
+    #: unaffected - locking is a safety catch, not a render flag.
+    locked: bool = False
     background: str = ""
     transition_in: TransitionSpec = field(default_factory=TransitionSpec)
     transition_out: TransitionSpec = field(default_factory=TransitionSpec)
@@ -1034,6 +1051,112 @@ class Project:
             return False
         return self.move_scene(scene_id, self.scenes.index(scene) + delta)
 
+    # -- element operations -------------------------------------------------
+
+    def element_by_id(self, scene_id: str, element_id: str) -> Optional[ElementSpec]:
+        scene = self.scene_by_id(scene_id)
+        if scene is None:
+            return None
+        for element in scene.elements:
+            if element.id == element_id:
+                return element
+        return None
+
+    def add_element(self, scene_id: str, element: Optional[ElementSpec] = None, index: Optional[int] = None) -> Optional[ElementSpec]:
+        scene = self.scene_by_id(scene_id)
+        if scene is None:
+            return None
+        element = element or ElementSpec(id=new_id("el"))
+        if not element.id:
+            element.id = new_id("el")
+        if index is None:
+            scene.elements.append(element)
+        else:
+            scene.elements.insert(max(0, min(index, len(scene.elements))), element)
+        self._sync_z_index(scene)
+        self.touch()
+        return element
+
+    def remove_element(self, scene_id: str, element_id: str) -> Optional[ElementSpec]:
+        scene = self.scene_by_id(scene_id)
+        if scene is None:
+            return None
+        element = self.element_by_id(scene_id, element_id)
+        if element is None:
+            return None
+        scene.elements.remove(element)
+        self._sync_z_index(scene)
+        self.touch()
+        return element
+
+    def duplicate_element(self, scene_id: str, element_id: str) -> Optional[ElementSpec]:
+        """Deep copy of one element, placed right after the original.
+
+        Independent: the copy gets a fresh id, so editing it never touches the
+        original (directive section 40).
+        """
+        original = self.element_by_id(scene_id, element_id)
+        if original is None:
+            return None
+        scene = self.scene_by_id(scene_id)
+        copy = ElementSpec.from_dict(original.to_dict())
+        copy.id = new_id("el")
+        self.add_element(scene_id, copy, index=scene.elements.index(original) + 1)
+        return copy
+
+    def move_element(self, scene_id: str, element_id: str, delta: int) -> bool:
+        """Bring an element forward/backward by ``delta`` positions."""
+        scene = self.scene_by_id(scene_id)
+        element = self.element_by_id(scene_id, element_id)
+        if scene is None or element is None:
+            return False
+        target = scene.elements.index(element) + delta
+        target = max(0, min(target, len(scene.elements) - 1))
+        scene.elements.remove(element)
+        scene.elements.insert(target, element)
+        self._sync_z_index(scene)
+        self.touch()
+        return True
+
+    def element_to_front(self, scene_id: str, element_id: str) -> bool:
+        return self.move_element(scene_id, element_id, len(self.scene_by_id(scene_id).elements))
+
+    def element_to_back(self, scene_id: str, element_id: str) -> bool:
+        return self.move_element(scene_id, element_id, -len(self.scene_by_id(scene_id).elements))
+
+    @staticmethod
+    def _sync_z_index(scene: SceneSpec) -> None:
+        """Keep the explicit ``z_index`` in step with the list order."""
+        for index, element in enumerate(scene.elements):
+            element.z_index = index + 1
+
+    # -- scene clipboard ----------------------------------------------------
+
+    def copy_scene(self, scene_id: str) -> Optional[dict]:
+        """Return a serialisable snapshot of a scene for the clipboard.
+
+        The snapshot is a plain dict (deep), so a paste - even in a different
+        project - re-creates independent scenes with fresh ids.
+        """
+        scene = self.scene_by_id(scene_id)
+        if scene is None:
+            return None
+        import copy as _copy
+
+        return {"__clip__": "scene", "data": _copy.deepcopy(scene.to_dict())}
+
+    def paste_scene(self, clip: Optional[dict], *, index: Optional[int] = None) -> Optional[SceneSpec]:
+        """Paste a copied scene, giving it and its elements fresh ids."""
+        if not isinstance(clip, dict) or clip.get("__clip__") != "scene":
+            return None
+        scene = SceneSpec.from_dict(clip.get("data"))
+        scene.id = new_id("scene")
+        scene.name = (scene.name or "Scene") + " (paste)"
+        for element in scene.elements:
+            element.id = new_id("el")
+        return self.add_scene(scene, index=index)
+
+
     def timeline(self) -> list[dict]:
         """Compute start times from the effective durations (sequential).
 
@@ -1043,6 +1166,10 @@ class Project:
         cursor = 0.0
         rows: list[dict] = []
         for index, scene in enumerate(self.scenes):
+            # A disabled scene is dropped from the cut entirely; it does not
+            # consume timeline (directive section 34).
+            if not getattr(scene, "enabled", True):
+                continue
             duration = max(0.0, scene.effective_duration)
             rows.append(
                 {

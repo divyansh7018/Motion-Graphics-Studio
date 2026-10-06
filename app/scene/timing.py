@@ -233,6 +233,10 @@ def build_timeline(scenes: Sequence[Any], options: Optional[TimingOptions] = Non
     cursor = 0.0
 
     for index, scene in enumerate(scenes):
+        # Disabled scenes are dropped from the cut and consume no timeline
+        # (directive section 34).  They stay in the project.
+        if not getattr(scene, "enabled", True):
+            continue
         narration = getattr(scene, "narration", None)
         narration_duration = _number(getattr(narration, "duration", 0.0))
         manual = _number(getattr(scene, "duration", 0.0))

@@ -33,7 +33,7 @@ from .assets import AssetCheck, ImportReport, verify_assets
 from .history import ProjectHistory
 from .layout import PROJECT_FILENAME, ProjectLayout, find_project_file, looks_like_project_folder
 from .lock import ProjectLock
-from .model import Project, SceneSpec, build_project, utc_now_iso
+from .model import ElementSpec, Project, SceneSpec, build_project, utc_now_iso
 from .presets import PROJECT_TEMPLATES, project_template, resolve_quality
 from .recent import (
     CHANNELS_FILENAME,
@@ -670,6 +670,165 @@ class ProjectService:
         if session.project.scene_by_id(scene_id) is None:
             return False
         self.edit("Rename scene", lambda project: project.rename_scene(scene_id, new_name))
+        return True
+
+    def set_scene_enabled(self, scene_id: str, enabled: bool) -> bool:
+        """Enable/disable a scene as one undoable edit (directive section 34)."""
+        session = self._require_session()
+        if session.project.scene_by_id(scene_id) is None:
+            return False
+
+        def apply(project: Project) -> None:
+            scene = project.scene_by_id(scene_id)
+            if scene is not None:
+                scene.enabled = bool(enabled)
+
+        self.edit("Enable scene" if enabled else "Disable scene", apply)
+        return True
+
+    def set_scene_locked(self, scene_id: str, locked: bool) -> bool:
+        session = self._require_session()
+        if session.project.scene_by_id(scene_id) is None:
+            return False
+
+        def apply(project: Project) -> None:
+            scene = project.scene_by_id(scene_id)
+            if scene is not None:
+                scene.locked = bool(locked)
+
+        self.edit("Lock scene" if locked else "Unlock scene", apply)
+        return True
+
+    def update_scene_field(self, scene_id: str, **fields) -> bool:
+        """Change scalar scene fields (name/type/duration/background/notes/script).
+
+        Used by the inspector; every change is a single undoable edit so the
+        property panel honours undo/redo (directive section 40).
+        """
+        session = self._require_session()
+        if session.project.scene_by_id(scene_id) is None:
+            return False
+        allowed = {"name", "type", "duration", "background", "notes", "script"}
+        clean = {k: v for k, v in fields.items() if k in allowed}
+        if not clean:
+            return False
+
+        def apply(project: Project) -> None:
+            scene = project.scene_by_id(scene_id)
+            if scene is None:
+                return
+            for key, value in clean.items():
+                setattr(scene, key, value)
+
+        self.edit("Edit scene", apply)
+        return True
+
+    def copy_scene(self, scene_id: str) -> Optional[dict]:
+        """Snapshot a scene to an in-memory clipboard (no file, no side effect)."""
+        session = self._require_session()
+        return session.project.copy_scene(scene_id)
+
+    def paste_scene(self, clip: Optional[dict], *, index: Optional[int] = None) -> Optional[SceneSpec]:
+        """Paste a copied scene as one undoable edit, with fresh ids."""
+        self._require_session()
+        created: dict = {}
+
+        def apply(project: Project) -> None:
+            created["scene"] = project.paste_scene(clip, index=index)
+
+        self.edit("Paste scene", apply)
+        return created.get("scene")
+
+    # -- element operations (shared by the editor and the inspector) --------
+
+    def add_element(self, scene_id: str, element: Optional[ElementSpec] = None) -> Optional[ElementSpec]:
+        session = self._require_session()
+        if session.project.scene_by_id(scene_id) is None:
+            return None
+        created: dict = {}
+
+        def apply(project: Project) -> None:
+            created["element"] = project.add_element(scene_id, element)
+
+        self.edit("Add element", apply)
+        return created.get("element")
+
+    def remove_element(self, scene_id: str, element_id: str) -> bool:
+        session = self._require_session()
+        if session.project.element_by_id(scene_id, element_id) is None:
+            return False
+        self.edit("Delete element", lambda project: project.remove_element(scene_id, element_id))
+        return True
+
+    def duplicate_element(self, scene_id: str, element_id: str) -> Optional[ElementSpec]:
+        """Copy one element as one undoable edit and return the independent copy."""
+        session = self._require_session()
+        if session.project.element_by_id(scene_id, element_id) is None:
+            return None
+        created: dict = {}
+
+        def apply(project: Project) -> None:
+            created["element"] = project.duplicate_element(scene_id, element_id)
+
+        self.edit("Duplicate element", apply)
+        return created.get("element")
+
+    def move_element(self, scene_id: str, element_id: str, delta: int) -> bool:
+        session = self._require_session()
+        if session.project.element_by_id(scene_id, element_id) is None:
+            return False
+
+        def apply(project: Project) -> None:
+            project.move_element(scene_id, element_id, delta)
+
+        self.edit("Reorder element", apply)
+        return True
+
+    def element_to_front(self, scene_id: str, element_id: str) -> bool:
+        session = self._require_session()
+        if session.project.element_by_id(scene_id, element_id) is None:
+            return False
+        self.edit("Bring to front", lambda project: project.element_to_front(scene_id, element_id))
+        return True
+
+    def element_to_back(self, scene_id: str, element_id: str) -> bool:
+        session = self._require_session()
+        if session.project.element_by_id(scene_id, element_id) is None:
+            return False
+        self.edit("Send to back", lambda project: project.element_to_back(scene_id, element_id))
+        return True
+
+    def set_element_locked(self, scene_id: str, element_id: str, locked: bool) -> bool:
+        session = self._require_session()
+        if session.project.element_by_id(scene_id, element_id) is None:
+            return False
+
+        def apply(project: Project) -> None:
+            element = project.element_by_id(scene_id, element_id)
+            if element is not None:
+                element.locked = bool(locked)
+
+        self.edit("Lock element" if locked else "Unlock element", apply)
+        return True
+
+    def update_element_field(self, scene_id: str, element_id: str, **fields) -> bool:
+        """Change scalar element fields from the inspector, as one undoable edit."""
+        session = self._require_session()
+        if session.project.element_by_id(scene_id, element_id) is None:
+            return False
+        allowed = {"kind", "text", "asset_id", "anchor", "color"}
+        clean = {k: v for k, v in fields.items() if k in allowed}
+        if not clean:
+            return False
+
+        def apply(project: Project) -> None:
+            element = project.element_by_id(scene_id, element_id)
+            if element is None:
+                return
+            for key, value in clean.items():
+                setattr(element, key, value)
+
+        self.edit("Edit element", apply)
         return True
 
     def add_scene_from_template(self, template_key: str, content: Optional[dict] = None,

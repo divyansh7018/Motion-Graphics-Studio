@@ -34,7 +34,7 @@ __all__ = [
 #: is a subset of these - the model lists what may be *stored*, this lists what
 #: may be *drawn*.
 ENGINE_TRANSITIONS: tuple[str, ...] = (
-    "none", "cut", "fade", "slide", "zoom", "wipe", "push", "dip",
+    "none", "cut", "fade", "slide", "zoom", "wipe", "push", "dip", "dip white",
 )
 
 TRANSITION_LABELS: dict[str, str] = {
@@ -46,6 +46,7 @@ TRANSITION_LABELS: dict[str, str] = {
     "wipe": "Wipe",
     "push": "Push",
     "dip": "Dip to black",
+    "dip white": "Dip to white",
 }
 
 
@@ -101,6 +102,8 @@ def blend(first: Image.Image, second: Image.Image, fraction: float, kind: str = 
         return _wipe(a, b, t)
     if name == "dip":
         return _dip(a, b, t)
+    if name in ("dip white", "dip_white", "fade to white", "fade white"):
+        return _dip_white(a, b, t)
     return crossfade(a, b, t)
 
 
@@ -165,3 +168,14 @@ def _dip(first: Image.Image, second: Image.Image, t: float) -> Image.Image:
     if t < 0.5:
         return crossfade(first, black, t / 0.5)
     return crossfade(black, second, (t - 0.5) / 0.5)
+
+
+def _dip_white(first: Image.Image, second: Image.Image, t: float) -> Image.Image:
+    """Fade to white halfway, then up from white (directive section 32).
+
+    The bright counterpart to ``dip``; useful for clean, airy scene changes.
+    """
+    white = Image.new("RGBA", first.size, (255, 255, 255, 255))
+    if t < 0.5:
+        return crossfade(first, white, t / 0.5)
+    return crossfade(white, second, (t - 0.5) / 0.5)

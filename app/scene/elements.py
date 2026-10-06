@@ -54,7 +54,9 @@ __all__ = [
 ]
 
 #: Kinds of visual element the engine can draw.
-ELEMENT_KINDS: tuple[str, ...] = ("text", "image", "shape", "card", "number", "chart", "divider")
+ELEMENT_KINDS: tuple[str, ...] = (
+    "text", "image", "shape", "card", "group", "number", "chart", "divider", "progress",
+)
 
 #: Shapes a ``shape`` element can draw.
 SHAPE_KINDS: tuple[str, ...] = (
@@ -200,6 +202,11 @@ class ResolvedElement:
     rotation: float = 0.0
     # -- number ----------------------------------------------------------
     number_text: str = ""
+    #: The raw numeric value, so a count-up animation can re-render the digits
+    #: each frame instead of faking it with a scale (directive section 31).
+    number_value: Optional[float] = None
+    #: Format options for ``number_value`` (currency, decimals, prefix/suffix).
+    number_options: dict = field(default_factory=dict)
     unit_text: str = ""
     label_text: str = ""
     #: Secondary caption under a number, laid out separately and smaller.
@@ -210,6 +217,10 @@ class ResolvedElement:
     chart_series: list = field(default_factory=list)
     chart_labels: list = field(default_factory=list)
     chart_colors: list = field(default_factory=list)
+    # -- progress --------------------------------------------------------
+    progress_fraction: float = 0.0
+    track_color: Optional[Color] = None
+    fill_color: Optional[Color] = None
     # -- card ------------------------------------------------------------
     children: list = field(default_factory=list)
     # -- bookkeeping -----------------------------------------------------
@@ -344,6 +355,8 @@ def layout_element(spec: ElementSpec, ctx: LayoutContext, *, z: int = 0) -> Reso
         "number": _layout_number,
         "chart": _layout_chart,
         "divider": _layout_divider,
+        "group": _layout_group,
+        "progress": _layout_progress,
     }
     try:
         return builders[kind](spec, ctx, z)
@@ -771,6 +784,12 @@ def _layout_number(spec: ElementSpec, ctx: LayoutContext, z: int) -> ResolvedEle
     element.number_text = value_text
     element.unit_text = unit_text
     element.label_text = label_text
+    # Keep the raw value and its format so a count-up can re-render digits.
+    try:
+        element.number_value = float(str(raw_value).replace(",", "").strip())
+        element.number_options = dict(extra)
+    except (TypeError, ValueError):
+        element.number_value = None
 
     if label_text.strip():
         label_spec = ElementSpec(
@@ -888,6 +907,52 @@ def _layout_card(spec: ElementSpec, ctx: LayoutContext, z: int) -> ResolvedEleme
             )
             element.children.append(laid_out)
             element.issues.extend(laid_out.issues)
+    return element
+
+
+# -- group -----------------------------------------------------------------
+
+def _layout_group(spec: ElementSpec, ctx: LayoutContext, z: int) -> ResolvedElement:
+    """A transparent container for child elements (directive section 25).
+
+    A group is a card without a painted background by default, so it exists
+    purely to hold and move children together.  Children keep their own
+    transforms and are translated into scene space exactly like a card's.
+    """
+    element = _layout_card(spec, ctx, z)
+    element.kind = "group"
+    extra = spec.extra if isinstance(spec.extra, dict) else {}
+    # A group paints nothing unless the user asked for a fill; a card does.
+    if not extra.get("fill") and not extra.get("background"):
+        element.background = None
+        element.gradient = None
+    return element
+
+
+# -- progress --------------------------------------------------------------
+
+def _layout_progress(spec: ElementSpec, ctx: LayoutContext, z: int) -> ResolvedElement:
+    """A progress bar: a track with a filled fraction (directive section 25).
+
+    ``value``/``max`` give the fraction; ``extra['fill']`` colours the bar and
+    ``extra['track']`` the empty remainder.  The bar is responsive - its length
+    follows the frame, its thickness follows the reference dimension.
+    """
+    element = _layout_shape(spec, ctx, z)
+    element.kind = "progress"
+    element.shape = "rounded"
+    extra = spec.extra if isinstance(spec.extra, dict) else {}
+    try:
+        value = float(extra.get("value", 0.0))
+        maximum = float(extra.get("max", 100.0))
+    except (TypeError, ValueError):
+        value, maximum = 0.0, 100.0
+    fraction = 0.0 if maximum <= 0 else max(0.0, min(1.0, value / maximum))
+    element.progress_fraction = fraction
+    element.track_color = ctx.color(extra.get("track"), role="border")
+    # The bar's own fill is the accent; the shape background becomes the track.
+    element.fill_color = element.background or ctx.color(extra.get("fill"), role="accent")
+    element.background = element.track_color
     return element
 
 

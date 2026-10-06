@@ -25,7 +25,7 @@ from app.scene import (
 )
 from app.scene.timing import TimingOptions
 
-ASPECTS = ((1920, 1080), (1080, 1920), (1080, 1080), (1280, 720))
+ASPECTS = ((1920, 1080), (1080, 1920), (1080, 1080), (1080, 1350), (1280, 720))
 
 
 def _coverage(image: Image.Image, threshold: int = 40) -> float:

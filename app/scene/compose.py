@@ -46,16 +46,87 @@ class RenderOptions:
 
 
 def render_background(canvas: Canvas, background: Any, *,
-                      fallback: str = "#101014") -> Image.Image:
-    """The scene's background: a gradient, a colour, or the project default."""
+                      fallback: str = "#101014", image_path: Optional[Path] = None,
+                      overlay: Optional[Any] = None) -> Image.Image:
+    """The scene's background: an image, a gradient, a colour, or the default.
+
+    ``image_path`` (directive section 24) is cover-fitted to the frame, keeping
+    its aspect ratio; ``overlay`` is an optional colour/gradient laid over the
+    image so text on top stays readable.  A missing image degrades to the
+    colour/gradient path rather than raising.
+    """
     image = Image.new("RGBA", (canvas.width, canvas.height), (0, 0, 0, 255))
-    gradient = Gradient.from_value(background)
+
+    if image_path is not None and Path(image_path).is_file():
+        try:
+            with Image.open(image_path) as source:
+                picture = source.convert("RGBA")
+            cover = _cover(picture, canvas.width, canvas.height)
+            image.alpha_composite(cover, (0, 0))
+        except Exception:
+            # A corrupt background must never break the render; fall through to
+            # the colour/gradient below.
+            pass
+
+    gradient = Gradient.from_value(overlay if overlay is not None else background)
     if gradient is not None:
         layer = draw_gradient(PixelRect(0, 0, canvas.width, canvas.height), gradient)
         composite_layer(image, layer, (0, 0))
         return image
-    colour = parse_color(background, fallback) if background not in (None, "") else parse_color(fallback)
-    return Image.new("RGBA", (canvas.width, canvas.height), colour.tuple)
+    value = overlay if overlay is not None else background
+    if image_path is not None and value in (None, ""):
+        return image  # keep the image, no colour wash over it
+    colour = parse_color(value, fallback) if value not in (None, "") else parse_color(fallback)
+    wash = Image.new("RGBA", (canvas.width, canvas.height), colour.tuple)
+    image.alpha_composite(wash, (0, 0))
+    return image
+
+
+def _resolve_asset(asset_id: str, ctx: Optional[LayoutContext]) -> Optional[Path]:
+    """Resolve an asset id (or a literal file path) to an existing file."""
+    if not asset_id or ctx is None:
+        return None
+    resolved = (ctx.asset_paths or {}).get(asset_id)
+    if resolved is not None and Path(resolved).is_file():
+        return Path(resolved)
+    candidate = Path(asset_id)
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _background_parts(background: Any, ctx: Optional[LayoutContext]):
+    """Split a background value into ``(colour_or_gradient, image_path, overlay)``.
+
+    Accepts a plain colour/gradient (as before), an asset id or file path
+    string, or a dict ``{"image": ..., "overlay": ...}``.  Anything it cannot
+    resolve to a real file is treated as a colour/gradient, so an old project
+    keeps rendering exactly as it did.
+    """
+    if isinstance(background, dict):
+        image_ref = background.get("image") or background.get("asset_id") or background.get("path")
+        overlay = background.get("overlay")
+        image_path = _resolve_asset(str(image_ref), ctx) if image_ref else None
+        colour = background.get("color") or background.get("colour") or background.get("background")
+        return colour, image_path, overlay
+
+    if isinstance(background, str) and background.strip():
+        image_path = _resolve_asset(background.strip(), ctx)
+        if image_path is not None:
+            return None, image_path, None
+    return background, None, None
+
+
+def _cover(picture: Image.Image, width: int, height: int) -> Image.Image:
+    """Resize *picture* to cover ``width``x``height`` (crop the overflow)."""
+    target_w, target_h = max(1, width), max(1, height)
+    src_w, src_h = max(1, picture.width), max(1, picture.height)
+    scale = max(target_w / src_w, target_h / src_h)
+    new_size = (max(1, int(round(src_w * scale))), max(1, int(round(src_h * scale))))
+    resized = picture.resize(new_size, Image.BILINEAR)
+    left = (new_size[0] - target_w) // 2
+    top = (new_size[1] - target_h) // 2
+    return resized.crop((left, top, left + target_w, top + target_h))
 
 
 def compose_scene(layout: SceneLayout, *, background: Any = None, time: Optional[float] = None,
@@ -69,13 +140,16 @@ def compose_scene(layout: SceneLayout, *, background: Any = None, time: Optional
     """
     opts = options or RenderOptions()
     canvas = layout.canvas
-    image = render_background(canvas, background, fallback=opts.background_fallback)
+    colour_or_gradient, image_path, overlay = _background_parts(background, ctx)
+    image = render_background(canvas, colour_or_gradient, fallback=opts.background_fallback,
+                              image_path=image_path, overlay=overlay)
     moment = max(0.0, float(time)) if time is not None else None
 
     for element in layout.elements:
         if not element.visible:
             continue
         transform = IDENTITY
+        spec = None
         if moment is not None:
             spec = (animations or {}).get(element.element_id)
             if spec is None:
@@ -83,7 +157,12 @@ def compose_scene(layout: SceneLayout, *, background: Any = None, time: Optional
             transform = evaluate(spec, moment, scene_duration=scene_duration)
         if transform.is_invisible:
             continue
-        _draw_element(image, element, transform, ctx, opts)
+        paint_target = element
+        if moment is not None and spec is not None and spec.value_mode:
+            from .animation import value_progress
+
+            paint_target = _with_value_animation(element, value_progress(spec, moment))
+        _draw_element(image, paint_target, transform, ctx, opts)
 
     if opts.draw_safe_area and ctx is not None:
         _draw_guide(image, ctx.safe_area.rect, canvas, (255, 200, 60, 160))
@@ -181,9 +260,34 @@ _PAINTABLE_FIELDS = (
     "norm_rect", "color", "background", "gradient", "radius", "border_width", "border_color",
     "padding", "align", "font_size", "lines", "bold", "italic", "line_spacing",
     "image_path", "image_fit", "image_size", "image_box", "shape",
-    "number_text", "unit_text", "label_text", "label_lines", "label_font_size",
-    "chart_kind", "chart_series", "chart_labels", "chart_colors", "children", "opacity",
+    "number_text", "number_value", "number_options", "unit_text", "label_text", "label_lines",
+    "label_font_size", "chart_kind", "chart_series", "chart_labels", "chart_colors",
+    "progress_fraction", "track_color", "fill_color", "children", "opacity",
 )
+
+
+def _with_value_animation(element: ResolvedElement, progress: float) -> ResolvedElement:
+    """A copy of ``element`` with its value scaled by an animation's progress.
+
+    Used by count-up and progress-fill so the *digits* / *bar length* change
+    over time rather than the element being scaled (directive section 31).  The
+    original layout element is never mutated, so the next frame is correct.
+    """
+    import copy as _copy
+
+    from .elements import format_number
+
+    clone = _copy.copy(element)
+    progress = max(0.0, min(1.0, float(progress)))
+    if element.kind == "number" and element.number_value is not None:
+        scaled = element.number_value * progress
+        text = format_number(scaled, element.number_options)
+        clone.number_text = text
+        if element.lines:
+            clone.lines = [text]
+    elif element.kind == "progress":
+        clone.progress_fraction = element.progress_fraction * progress
+    return clone
 
 
 def _copy_paintable(source: ResolvedElement, target: ResolvedElement) -> None:
@@ -196,9 +300,11 @@ def _paint_element(image: Image.Image, element: ResolvedElement, transform: Elem
     kind = element.kind
     if kind in ("shape", "divider"):
         _paint_shape(image, element, transform)
+    elif kind == "progress":
+        _paint_progress(image, element, transform)
     elif kind == "image":
         _paint_image(image, element, transform)
-    elif kind == "card":
+    elif kind in ("card", "group"):
         _paint_card(image, element, transform, ctx)
     elif kind == "chart":
         _paint_chart(image, element, transform, ctx)
@@ -218,6 +324,28 @@ def _paint_shape(image: Image.Image, element: ResolvedElement, transform: Elemen
         fill=element.background, gradient=element.gradient,
         radius=element.radius, border_width=element.border_width,
         border_color=element.border_color, opacity=_effective_opacity(element, transform),
+    )
+
+
+def _paint_progress(image: Image.Image, element: ResolvedElement, transform: ElementTransform) -> None:
+    """A progress bar: paint the track, then the filled fraction over it."""
+    opacity = _effective_opacity(element, transform)
+    radius = element.radius or min(element.rect.width, element.rect.height) // 2
+    # Track (the empty remainder).
+    draw_shape(
+        image, element.rect, "rounded",
+        fill=element.background or element.track_color, gradient=None,
+        radius=radius, border_width=0, border_color=None, opacity=opacity,
+    )
+    fraction = max(0.0, min(1.0, float(element.progress_fraction)))
+    if fraction <= 0.0 or element.fill_color is None:
+        return
+    fill_width = max(1, int(round(element.rect.width * fraction)))
+    fill_rect = PixelRect(element.rect.x, element.rect.y, fill_width, element.rect.height)
+    draw_shape(
+        image, fill_rect, "rounded",
+        fill=element.fill_color, gradient=None,
+        radius=radius, border_width=0, border_color=None, opacity=opacity,
     )
 
 

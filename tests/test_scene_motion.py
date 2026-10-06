@@ -192,14 +192,24 @@ def test_preset_names_lists_none_first():
 
 
 def test_every_preset_builds_tracks_that_end_at_identity():
+    from app.scene.animation import VALUE_PRESETS
+
+    # "fade out" is an exit-style preset: it settles *invisible*, so it is the
+    # one preset that deliberately does not end at full opacity.
+    exit_style = {"fade out"}
     for name in preset_names():
         if name == "none":
+            continue
+        # Value presets (count up / progress fill) drive a number, not a
+        # transform, so they build no transform track by design.
+        if name in VALUE_PRESETS:
             continue
         builder = ANIMATION_PRESETS[name]["build"]
         tracks = builder(0.6)
         assert tracks, name
         spec = AnimationSpec(enter=tracks)
-        assert evaluate(spec, 10.0).opacity == pytest.approx(1.0)
+        expected = 0.0 if name in exit_style else 1.0
+        assert evaluate(spec, 10.0).opacity == pytest.approx(expected)
 
 
 def test_animation_properties_are_all_known():
