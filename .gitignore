@@ -46,3 +46,8 @@ env/
 Thumbs.db
 desktop.ini
 *.swp
+
+# Test coverage artifacts
+.coverage
+.coverage.*
+htmlcov/

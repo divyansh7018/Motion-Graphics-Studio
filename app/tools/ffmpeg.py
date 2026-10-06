@@ -538,6 +538,22 @@ class FFmpegTools:
             technical="\n".join(self.discovery.errors) or None,
         )
 
+    def ensure_ffmpeg(self) -> None:
+        """Raise a friendly error when FFmpeg *itself* is missing.
+
+        Encoding, mixing and probing-by-``ffmpeg -i`` only need FFmpeg.  FFprobe
+        is a convenience for verification, so requiring the full pair here would
+        refuse to render a video on a machine that can perfectly well render it.
+        Verification still prefers FFprobe and says so when it falls back.
+        """
+        if self.discovery.has_ffmpeg:
+            return
+        raise FFmpegNotFoundError(
+            program="FFmpeg",
+            searched=self.discovery.searched[:6],
+            technical="\n".join(self.discovery.errors) or None,
+        )
+
     # -- execution ---------------------------------------------------------
 
     def run(
@@ -548,7 +564,7 @@ class FFmpegTools:
         cwd: Optional[Path] = None,
     ) -> CommandResult:
         """Run FFmpeg with *args* appended to the executable path."""
-        self.ensure_available()
+        self.ensure_ffmpeg()
         return run_capture([str(self.ffmpeg), *[str(a) for a in args]], timeout=timeout, cancel_token=cancel_token, cwd=cwd)
 
     def probe(

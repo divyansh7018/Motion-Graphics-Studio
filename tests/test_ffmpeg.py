@@ -42,6 +42,22 @@ def _write_script(path: Path, output: str, exit_code: int = 0) -> Path:
 # Discovery
 # --------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def isolated_tool_environment(monkeypatch):
+    """Make discovery hermetic: it must only see what a test sets up.
+
+    Discovery legitimately falls back to ``PATH`` as its last step.  On a
+    machine that really has FFmpeg installed - which is exactly what a Stage E
+    build machine looks like - the "missing tools" tests would otherwise find
+    the real binary and fail.  Disabling only that final ``PATH`` lookup keeps
+    every assertion intact (each test still proves the behaviour it names) while
+    leaving the rest of the environment usable, so the fake tools the other tests
+    install are still found and executed.
+    """
+    monkeypatch.setattr(ffmpeg_tools, "_which", lambda name: (None, "not on PATH"))
+    yield
+
+
 def test_missing_tools_produce_a_clear_state(tmp_path: Path) -> None:
     discovery = ffmpeg_tools.discover_ffmpeg(source_root=tmp_path)
     assert not discovery.has_ffmpeg

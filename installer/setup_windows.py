@@ -188,10 +188,25 @@ def check_media_tools(report: Report, paths) -> None:
         )
         return
 
+    # Every failure here is a [FAIL] that blocks video work, so every one of them
+    # must carry the same concrete fix steps - "what happened, why it matters and
+    # what to do" is the rule for every error the application reports.
     if discovery.has_ffmpeg and not discovery.has_ffprobe:
-        report.fail("FFprobe is missing", "FFmpeg was found, but FFprobe is needed to verify finished videos.")
+        report.fail(
+            "FFprobe is missing",
+            "\n".join([
+                "FFmpeg was found, but FFprobe is needed to verify finished videos.",
+                "",
+            ] + _ffmpeg_hint(paths)),
+        )
     elif discovery.has_ffprobe and not discovery.has_ffmpeg:
-        report.fail("FFmpeg is missing", "FFprobe was found, but FFmpeg is needed to create videos.")
+        report.fail(
+            "FFmpeg is missing",
+            "\n".join([
+                "FFprobe was found, but FFmpeg is needed to create videos.",
+                "",
+            ] + _ffmpeg_hint(paths)),
+        )
     else:
         report.fail("FFmpeg and FFprobe were not found", "\n".join(_ffmpeg_hint(paths)))
 
