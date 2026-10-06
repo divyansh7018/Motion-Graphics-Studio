@@ -325,15 +325,29 @@ def burn_subtitles(*, tools: Any, source: Path, ass_file: Path, output: Path,
 
 
 def probe_detect(*, tools: Any, source: Path, duration: float = 30.0,
-                 threshold: float = 0.98, minimum: float = 0.5) -> dict:
+                 pixel_threshold: float = 0.05, ratio: float = 0.98,
+                 minimum: float = 0.5) -> dict:
     """Real black-frame detection using FFmpeg's ``blackdetect`` filter.
 
     Returns where the picture is actually black, rather than guessing from the
     scene model (directive section 40).
+
+    ``blackdetect`` takes two different thresholds and they are easy to confuse:
+
+    * ``pix_th`` - per-pixel luma below which a pixel counts as black.
+    * ``pic_th`` - fraction of such pixels needed before a *frame* is black.
+
+    Earlier this passed the ratio (0.98) in as ``pix_th``, which made almost
+    every pixel count as black and flagged an entire dark-themed video.  The
+    measured difference matters: a navy background has about 98.6% of pixels
+    below luma 0.10 but only 0.12% below 0.05, while a genuinely black frame is
+    100% at both.  So ``pix_th=0.05`` reports real black and leaves a dark but
+    perfectly normal design alone.
     """
     result = tools.run(
         ["-hide_banner", "-nostdin", "-i", str(source), "-vf",
-         f"blackdetect=d={minimum}:pix_th={threshold}", "-an", "-f", "null", "-"],
+         f"blackdetect=d={minimum}:pix_th={pixel_threshold}:pic_th={ratio}",
+         "-an", "-f", "null", "-"],
         timeout=max(60.0, duration * 4.0),
     )
     text = (result.stdout or "") + (result.stderr or "")

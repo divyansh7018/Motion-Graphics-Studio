@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from app.render.encode import probe_detect
 from app.render.qc import FAIL, PASS, QCService, WARNING
 from app.tools.ffmpeg import FFmpegTools, discover_ffmpeg
 
@@ -223,3 +224,35 @@ def test_subtitle_length_is_compared_with_the_video(qc, tools, tmp_path: Path):
     video = _make(tools, tmp_path / "subs.mp4", seconds=2.0)
     report = qc.check(video, expect_audio=False, expect_subtitles=9.0)
     assert "SUBTITLES_LONGER_THAN_VIDEO" in [issue.code for issue in report.issues]
+
+def test_a_dark_but_not_black_video_is_not_called_black(qc, tools, tmp_path: Path):
+    """A dark theme is a design choice, not a black frame.
+
+    ``blackdetect`` takes ``pix_th`` (per-pixel luma) and ``pic_th`` (fraction of
+    pixels) as separate knobs.  Passing the ratio in as the pixel threshold made
+    nearly every pixel count as black and flagged a whole navy-themed render.
+    Measured on a real one: such a frame has ~98.6% of pixels below luma 0.10 but
+    only ~0.12% below 0.05, while a true black frame is 100% at both - so 0.05
+    tells them apart.
+    """
+    # Built directly: _make() joins its source with "=", which cannot express
+    # a colour filter argument.
+    dark = tmp_path / "dark.mp4"
+    made = tools.run([
+        "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+        "-i", "color=c=0x1d2433:size=320x240:rate=25:duration=2",
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(dark),
+    ], timeout=180.0)
+    assert made.ok, made.describe_failure()
+    report = qc.check(dark, expect_audio=False)
+    assert "BLACK_FRAMES" not in [issue.code for issue in report.issues]
+
+    detected = probe_detect(tools=tools, source=dark, duration=4.0, minimum=0.2)
+    assert detected["ok"] is True
+    assert detected["ranges"] == []
+
+    # The same threshold still catches a frame that really is black, so the
+    # check has not simply been switched off.
+    black = _make(tools, tmp_path / "really_black.mp4", seconds=2.0, source="black")
+    caught = probe_detect(tools=tools, source=black, duration=4.0, minimum=0.2)
+    assert caught["black_seconds"] > 1.0
