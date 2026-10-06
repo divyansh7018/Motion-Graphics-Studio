@@ -123,16 +123,26 @@ See ``docs/STAGE_D_REPORT.md`` for the full evidence.  Highlights:
   landscape, portrait, square and 4K.  An AST test forbids hard-coded resolutions.
 * Visual elements: text (responsive fitting that never rewrites wording), images
   (cover/contain/fill with a labelled placeholder when missing), shapes, cards,
-  numbers and charts (bar/column/line/area/pie/donut/sparkline).
-* A scene registry of ten templates; registration is the only step to add a type.
-* Animation as a pure function of time (enter/exit presets and tracks) and a
-  transitions foundation (fade/slide/zoom/wipe/push/dip).
+  groups, numbers, progress bars and charts (bar/column/line/area/pie/donut/sparkline).
+  Backgrounds can be a colour, a gradient or a cover-fitted image with an overlay.
+* A scene registry of twenty-two templates (hook, title, body, image, stat, quote,
+  bullets, chart, cta, divider, paragraph, list, counter, progress, comparison,
+  before/after, timeline, bento, collage, end screen, logo, blank); registration is
+  the only step to add a type.
+* Animation as a pure function of time: enter/exit presets and keyframe-ready
+  tracks, plus value animations (count-up, progress-fill), slide up/down, scale
+  out, fade out and a deterministic shake; direction/intensity/repeat/stagger
+  parameters.  Transitions: cut/fade/slide/zoom/wipe/push/dip/dip-to-white.
 * Narration-driven timing with opt-in head/tail padding and **no maximum length**
-  (a ~3-hour timeline is tested).
-* A Storyboard page: add-from-template, duplicate, rename, reorder, delete as
-  single undoable edits, with live thumbnails and previews rendered off the Qt
-  thread by the Stage A job system.
-* 830 automated tests in total (239 added in this stage).
+  (a ~3-hour timeline is tested); scenes can be disabled (dropped from the cut but
+  kept in the project) or locked against accidental edits.
+* A Storyboard page: add-from-template, duplicate, rename, reorder, delete,
+  enable/disable and lock as single undoable edits, with live thumbnails and
+  previews rendered off the Qt thread; a scene editor with an element list and a
+  property inspector (z-order, duplicate, lock, text) - all undoable.
+* A shared `SceneService` and `motion-studio scene list|validate|info` CLI, so the
+  command line reports exactly what the storyboard sees.
+* 889 automated tests in total (298 added in this stage).
 
 ---
 

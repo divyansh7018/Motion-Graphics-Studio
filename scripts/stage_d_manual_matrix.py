@@ -114,7 +114,8 @@ def main() -> int:
     project = service.current
 
     # 4 - responsive layout: the same project renders at every aspect ratio.
-    ratios = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080), "4K": (3840, 2160)}
+    ratios = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080),
+              "4x5": (1080, 1350), "4K": (3840, 2160)}
     rendered = {}
     responsive_ok = True
     for label, (w, h) in ratios.items():

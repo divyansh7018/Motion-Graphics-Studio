@@ -4,8 +4,8 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 830 tests passing** (Stage A 153 + Stage B 208 + Stage C 230 +
-Stage D 239). See `STAGE_A_REPORT.md`, `STAGE_B_REPORT.md`, `STAGE_C_REPORT.md` and
+**Current status: 889 tests passing** (Stage A 153 + Stage B 208 + Stage C 230 +
+Stage D 298). See `STAGE_A_REPORT.md`, `STAGE_B_REPORT.md`, `STAGE_C_REPORT.md` and
 `STAGE_D_REPORT.md` for the exact runs.
 
 ---
@@ -30,8 +30,9 @@ Stage D 239). See `STAGE_A_REPORT.md`, `STAGE_B_REPORT.md`, `STAGE_C_REPORT.md` 
 | Scene visuals | shapes, charts and the deterministic RGBA renderer at every aspect ratio | `test_scene_visual.py` |
 | Scene registry & validation | templates cross-checked against schema types; layout-level validation | `test_scene_registry.py` |
 | Scene jobs | storyboard and preview job bodies with real cancellation | `test_scene_jobs.py` |
-| Scene end-to-end | a real project on disk, saved, reopened, previewed at 4 aspect ratios | `test_scene_e2e_preview.py` |
-| Storyboard page | add/duplicate/rename/reorder/delete via the real window and JobManager | `test_storyboard_ui.py` |
+| Scene end-to-end | a real project on disk, saved, reopened, previewed at 5 aspect ratios (incl. 1080x1350) | `test_scene_e2e_preview.py` |
+| Scene engine, second pass | z-order, element duplication, scene copy/paste, enable/disable, group/progress elements, count-up & progress-fill, image backgrounds, expanded registry, `SceneService`, `scene` CLI, 50-scene long form | `test_scene_stage_d2.py` |
+| Storyboard page | add/duplicate/rename/reorder/delete, the scene editor (element list + property inspector), enable/disable and lock, via the real window and JobManager | `test_storyboard_ui.py` |
 | Voice CLI | `script`, `voice` and `narration` commands, exit codes and messages | `test_cli_voice.py` |
 | End-to-end | folders → settings → FFmpeg → real encode → validation → cleanup → jobs → cancel | `app/diagnostics/smoke.py` |
 | Release check | 10 steps on a throw-away data folder, including the project lifecycle | `scripts/release_check.py` |

@@ -80,5 +80,37 @@ scales to hours. There is no cap anywhere in Stage D (`test_scene_motion.py`).
 ```
 python run_studio.py --data-root <dir>          # GUI, open the Storyboard page
 python scripts/stage_d_manual_matrix.py --data-root <dir>   # 16-scenario evidence
-python -m pytest tests -q                        # 830 tests
+python -m pytest tests -q                        # 889 tests
+motion-studio scene list|validate|info           # CLI, via the shared SceneService
 ```
+
+## Second pass - closing the remaining directive gaps
+
+After the first pass, the full 77-section directive was re-checked and the
+remaining gaps were implemented and tested (59 new tests; Stage D is now 298,
+the suite 889):
+
+- **Model/service:** element z-order operations (forward/back/front/back),
+  element duplication, scene copy/paste (independent ids), scene enable/disable
+  and lock, and undoable scalar field edits for the inspector. Disabled scenes
+  are dropped from the timeline and the cut but stay in the project.
+- **Elements:** `group` (transparent container with children) and `progress`
+  (a responsive bar with a fill fraction).
+- **Animation:** value presets `count up` and `progress fill` (the digits / bar
+  length change over time, not a scale), plus slide up/down, scale out, fade out
+  and a deterministic `shake` easing; `direction`, `intensity`, `repeat` and
+  `stagger` parameters.
+- **Transitions:** dip-to-white added alongside dip-to-black.
+- **Backgrounds:** a scene background can be a cover-fitted image (asset id or
+  path) with an optional colour/gradient overlay.
+- **Registry:** expanded from 10 to 22 templates (hook, paragraph, list, counter,
+  progress, comparison, before/after, timeline, bento, collage, end screen, logo).
+- **Storyboard UI:** cards show narration status, disabled/locked flags and issue
+  counts; disabled scenes stay listed and selectable. A scene editor card adds an
+  element list (front of list = front of z-order) and a property inspector that
+  shows only the properties that apply to the selected kind, with duplicate,
+  delete, bring-to-front, send-to-back, lock and text editing - all undoable.
+- **Shared layer + CLI:** `SceneService` (list/validate/info) is used by both the
+  GUI and `motion-studio scene list|validate|info`, so the two cannot drift.
+- **Responsive/long-form:** the end-to-end preview now covers 1080x1350 as well,
+  and a 50-scene project is built, saved, reloaded and rendered.

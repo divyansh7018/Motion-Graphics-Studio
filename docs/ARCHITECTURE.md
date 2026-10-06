@@ -91,6 +91,22 @@ real logic on a machine without a display.
 | `app/project/thumbnails.py` | cached previews (Pillow only, never a render) |
 | `app/project/history.py` | bounded undo/redo over project snapshots |
 | `app/project/service.py` | `ProjectService`: the one place projects are created and changed |
+| `app/project/scene_service.py` | `SceneService`: read-only scene queries (list/validate/info) shared by the GUI and the CLI |
+| `app/scene/canvas.py` | `Canvas`, safe areas, normalised/pixel rects, anchors - resolution independence |
+| `app/scene/text.py` | font resolution, text fitting, missing-glyph detection (never rewrites wording) |
+| `app/scene/palette.py` | colours, gradients, theme roles, readable-on helpers |
+| `app/scene/elements.py` | the element model and layout: text/image/shape/card/group/number/chart/divider/progress |
+| `app/scene/shapes.py` | shape and gradient drawing primitives |
+| `app/scene/charts.py` | bar/column/line/area/pie/donut/sparkline drawing from structured data |
+| `app/scene/animation.py` | deterministic easings, presets (incl. value presets), keyframe-ready tracks |
+| `app/scene/transitions.py` | cut/fade/slide/push/zoom/wipe/dip/dip-white blending |
+| `app/scene/timing.py` | narration-driven timeline; no maximum length |
+| `app/scene/compose.py` | the compositor: backgrounds (incl. images), elements, transitions, frames |
+| `app/scene/templates.py` | the scene registry: named recipes that build responsive scenes |
+| `app/scene/validate.py` | visual + timeline validation that collects actionable issues |
+| `app/scene/storyboard.py` | storyboard rows, thumbnails, preview frames |
+| `app/scene/jobs.py` | storyboard/preview job bodies and specs |
+| `app/cli/scene.py` | `motion-studio scene list\|validate\|info`, via `SceneService` |
 | `app/tools/ffmpeg.py` | FFmpeg/FFprobe discovery, safe subprocess execution |
 | `app/tools/kokoro.py` | legacy Kokoro probe kept for Stage B callers; superseded by `app/tts/capabilities.py` |
 | `app/script/parser.py` | plain ↔ structured script parsing; unknown labels are preserved, never dropped |

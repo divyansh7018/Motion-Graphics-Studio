@@ -191,16 +191,51 @@ settings; the mixing itself arrives in Stage E.
 ```json
 {
   "id": "scene-1", "name": "Intro", "type": "title", "script": "Hello.",
-  "notes": "", "duration": 4.0, "background": "",
+  "notes": "", "duration": 4.0, "enabled": true, "locked": false, "background": "",
   "transition_in":  { "type": "none", "duration": 0.0 },
   "transition_out": { "type": "none", "duration": 0.0 },
   "narration": { "file": "", "duration": 0.0, "voice": "", "speed": 1.0, "text": "" },
-  "elements": []
+  "elements": [
+    {
+      "id": "el-1", "kind": "text", "text": "Hello", "asset_id": "",
+      "anchor": "center", "position": { "x": 0.5, "y": 0.42 },
+      "size": { "mode": "relative", "value": 0.095 },
+      "fit": { "auto_fit": true, "max_lines": 3, "min_scale": 0.5 },
+      "color": "#ffffff", "animation": { "preset": "fade up" },
+      "z_index": 1, "locked": false, "extra": { "align": "center", "bold": true }
+    }
+  ]
 }
 ```
 
-Order in the array **is** the timeline order. A blank project has an empty
+Order in the array **is** the timeline order, and an element's position in the
+list **is** its paint order (later = on top). A blank project has an empty
 array - Stage B never creates placeholder scenes, narration or media.
+
+Scene fields added by the scene engine (all optional; absent means the default):
+
+| Field | Meaning |
+|-------|---------|
+| `enabled` | `false` drops the scene from the timeline and the final cut, but keeps it in the project so it can be re-enabled. Defaults to `true`. |
+| `locked` | A safety catch: the editor refuses accidental edits. Rendering is unaffected. |
+| `background` | A colour, a gradient, an asset id / file path (cover-fitted image), or `{"image": ..., "overlay": ...}`. |
+
+Element fields:
+
+| Field | Meaning |
+|-------|---------|
+| `position`, `size` | Normalised `0..1`, never pixels, so a scene is resolution independent. |
+| `z_index` | Explicit stack order, kept in step with the list order by the z-order operations. `0` means "use the list order". |
+| `locked` | Locked elements draw normally but the editor will not move or delete them on a stray click. |
+| `kind` | `text`, `image`, `shape`, `card`, `group`, `number`, `chart`, `divider`, `progress`. |
+| `animation` | `{}` = the default preset for the kind; `{"preset": "none"}` = off. Value presets `count up` and `progress fill` animate a number/bar rather than a transform. |
+
+`type` is one of the registered scene templates (`blank`, `title`, `body`,
+`image`, `stat`, `quote`, `bullets`, `chart`, `cta`, `divider`, `hook`,
+`paragraph`, `list`, `counter`, `progress`, `comparison`, `before_after`,
+`timeline`, `bento`, `collage`, `end_screen`, `logo`). `transition_in` /
+`transition_out` `type` is one of `none`, `cut`, `fade`, `slide`, `zoom`,
+`wipe`, `push`, `dip` (to black), `dip white`.
 
 ### 3.8 `assets`
 
