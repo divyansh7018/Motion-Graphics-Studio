@@ -167,3 +167,98 @@ def test_scene_preview_job_renders_a_frame(window):
     assert wait_until(lambda: page._preview_job is None, timeout=25.0)
     # After the job the preview label holds a pixmap.
     assert wait_until(lambda: not page.preview_label.pixmap().isNull(), timeout=10.0)
+
+
+def test_scene_editor_lists_elements_and_inspects_them(window):
+    _open_project(window)
+    page = window.storyboard_page
+    page.refresh()
+    page.template_combo.setCurrentIndex(page.template_combo.findData("title"))
+    page._add_scene()
+    page.strip.setCurrentRow(0)
+
+    scene = page._selected_scene()
+    assert scene is not None and scene.elements
+    # The element list mirrors the scene's elements (front of list = front).
+    assert page.element_list.count() == len(scene.elements)
+    page.element_list.setCurrentRow(0)
+    element = page._selected_element()
+    assert element is not None
+    # Selecting an element enables the inspector's text field.
+    assert page.element_text.isEnabled()
+
+
+def test_element_text_edit_is_undoable_and_persists(window):
+    _open_project(window)
+    page = window.storyboard_page
+    page.refresh()
+    page.template_combo.setCurrentIndex(page.template_combo.findData("title"))
+    page._add_scene()
+    page.strip.setCurrentRow(0)
+    page.element_list.setCurrentRow(0)
+
+    page.element_text.setText("Edited headline")
+    page._apply_element_text()
+    scene = page._selected_scene()
+    assert any(el.text == "Edited headline" for el in scene.elements)
+
+
+def test_duplicate_and_delete_element(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    _open_project(window)
+    page = window.storyboard_page
+    page.refresh()
+    page.template_combo.setCurrentIndex(page.template_combo.findData("title"))
+    page._add_scene()
+    page.strip.setCurrentRow(0)
+    scene = page._selected_scene()
+    before = len(scene.elements)
+
+    page.element_list.setCurrentRow(0)
+    page._duplicate_element()
+    assert len(page._selected_scene().elements) == before + 1
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *args, **kwargs: QMessageBox.Yes))
+    page.element_list.setCurrentRow(0)
+    page._delete_element()
+    assert len(page._selected_scene().elements) == before
+
+
+def test_element_z_order_buttons_reorder(window):
+    _open_project(window)
+    page = window.storyboard_page
+    page.refresh()
+    # The CTA template builds a shape plus a label, so there is something to reorder.
+    page.template_combo.setCurrentIndex(page.template_combo.findData("cta"))
+    page._add_scene()
+    page.strip.setCurrentRow(0)
+    scene = page._selected_scene()
+    assert len(scene.elements) >= 2
+    target = scene.elements[0].id
+    page._select_element_by_id(target)
+    page._reorder_element("front")
+    assert page._selected_scene().elements[-1].id == target
+    page._select_element_by_id(target)
+    page._reorder_element("back")
+    assert page._selected_scene().elements[0].id == target
+
+
+def test_toggle_scene_enabled_and_lock(window):
+    _open_project(window)
+    page = window.storyboard_page
+    page.refresh()
+    page.template_combo.setCurrentIndex(page.template_combo.findData("title"))
+    page._add_scene()
+    page.strip.setCurrentRow(0)
+
+    page._toggle_enabled()
+    assert page._selected_scene().enabled is False
+    assert page.toggle_button.text() == "Enable"
+    page._toggle_enabled()
+    assert page._selected_scene().enabled is True
+
+    page._toggle_locked()
+    assert page._selected_scene().locked is True
+    assert page.lock_button.text() == "Unlock"

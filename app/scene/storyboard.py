@@ -138,6 +138,30 @@ def build_rows(project: Any, *, timeline: Optional[Timeline] = None,
             row.issues = len(result.warnings)
             row.errors = len(result.errors)
         rows.append(row)
+
+    # Disabled scenes are not on the timeline, but the storyboard must still
+    # show them so the user can re-enable them (directive section 34).
+    on_timeline = {timing.scene_id for timing in timeline.timings}
+    for index, scene in enumerate(scenes):
+        if scene.id in on_timeline:
+            continue
+        row = StoryboardRow(
+            scene_id=scene.id,
+            index=index,
+            name=scene.name or f"Scene {index + 1}",
+            type=getattr(scene, "type", "blank"),
+            start=0.0,
+            duration=0.0,
+            duration_source="disabled",
+            narration_duration=float(getattr(scene.narration, "duration", 0.0) or 0.0),
+            element_count=len(getattr(scene, "elements", []) or []),
+        )
+        if validate:
+            context = ctx or build_context(project)
+            result = validate_scene(scene, canvas=context.canvas, ctx=context, project=project)
+            row.issues = len(result.warnings)
+            row.errors = len(result.errors)
+        rows.append(row)
     return rows, timeline
 
 
