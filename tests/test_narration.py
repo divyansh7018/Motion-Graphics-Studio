@@ -18,6 +18,7 @@ from app.project.layout import ProjectLayout
 from app.tts.audio import validate_wav
 from app.tts.narration import (
     NarrationSettings,
+    attach_narration_to_scenes,
     generate_narration,
     plan_outputs,
     refresh_statuses,
@@ -593,3 +594,101 @@ def test_changing_the_script_still_marks_it_stale_with_the_fallback(service) -> 
     service.refresh_narration_statuses()
 
     assert service.current.narration.status == "stale"
+
+
+def new_scene(scene_id: str, name: str):
+    from app.project.model import SceneSpec
+
+    return SceneSpec(id=scene_id, name=name)
+
+
+
+# --------------------------------------------------------------------------
+# Linking generated audio back to the scenes that will render it (section 4)
+# --------------------------------------------------------------------------
+
+def _ready_track(index: int, seconds: float):
+    from app.project.model import NarrationTrack
+
+    return NarrationTrack(
+        id=f"track{index}", kind="section", section_id=f"sec{index}",
+        path=f"audio/narration/narration_scene_{index:03d}.wav", status="ready",
+        actual_duration_seconds=seconds, sample_rate=24000, channels=1,
+        source_hash="srchash", settings_hash="sethash", size_bytes=1000)
+
+
+def test_generated_narration_is_attached_to_the_scenes_that_render_it(project) -> None:
+    """Stage C writes one file per section; Stage E renders what scenes point at."""
+    for number in range(3):
+        project.scenes.append(new_scene(f"s{number}", f"Scene {number}"))
+    tracks = [_ready_track(i + 1, 2.0 + i) for i in range(3)]
+
+    notes = attach_narration_to_scenes(project, tracks)
+
+    assert len(notes) == 3
+    for index, scene in enumerate(project.scenes):
+        assert scene.narration.extra["narration_status"] == "ready"
+        assert scene.narration.file.endswith(f"narration_scene_{index + 1:03d}.wav")
+        assert scene.narration.duration == pytest.approx(2.0 + index)
+        assert scene.narration.extra["source_hash"] == "srchash"
+
+
+def test_a_scene_never_claims_audio_that_was_not_generated(project) -> None:
+    """A pending or failed track must not make its scene look ready."""
+    for number in range(3):
+        project.scenes.append(new_scene(f"s{number}", f"Scene {number}"))
+    pending = _ready_track(2, 3.0)
+    pending.status = "pending"
+    tracks = [_ready_track(1, 2.0), pending]
+
+    notes = attach_narration_to_scenes(project, tracks)
+
+    assert project.scenes[0].narration.file != ""
+    assert project.scenes[1].narration.file == ""
+    assert "narration_status" not in project.scenes[1].narration.extra
+    assert "no narration file generated" in notes[1]
+    assert "no narration file generated" in notes[2]
+
+
+def test_disabled_scenes_do_not_consume_a_track(project) -> None:
+    for number in range(3):
+        project.scenes.append(new_scene(f"s{number}", f"Scene {number}"))
+    project.scenes[1].enabled = False
+
+    attach_narration_to_scenes(project, [_ready_track(1, 2.0), _ready_track(2, 3.0)])
+
+    assert project.scenes[0].narration.duration == pytest.approx(2.0)
+    # The disabled scene keeps nothing, and the second track lands on scene 3.
+    assert project.scenes[1].narration.file == ""
+    assert project.scenes[2].narration.duration == pytest.approx(3.0)
+
+
+def test_an_unknown_attachment_mode_is_rejected(project) -> None:
+    with pytest.raises(ValueError):
+        attach_narration_to_scenes(project, [], by="magic")
+
+
+def test_attached_narration_survives_a_save_and_reload(tmp_path: Path) -> None:
+    """Provenance lives in ``extra`` because ``asdict()`` drops unknown fields."""
+    # build_project() rather than Project(): saving validates, and a bare
+    # Project() has no id.
+    project = build_project("StageC_Test")
+    project.voice.voice = "hf_alpha"
+    project.voice.language = "hi"
+    project.scenes.clear()
+    for number in range(2):
+        project.scenes.append(new_scene(f"s{number}", f"Scene {number}"))
+    attach_narration_to_scenes(project, [_ready_track(1, 2.5), _ready_track(2, 3.5)])
+
+    layout = ProjectLayout(tmp_path / "StageC_Test")
+    layout.ensure()
+    saved = ProjectStore().save(project, layout, reason="test")
+    assert saved.ok, saved.summary()
+    reopened = ProjectStore().load(layout.project_file).project
+
+    first, second = reopened.scenes
+    assert first.narration.file.endswith("narration_scene_001.wav")
+    assert first.narration.duration == pytest.approx(2.5)
+    assert first.narration.extra["narration_status"] == "ready"
+    assert first.narration.extra["source_hash"] == "srchash"
+    assert second.narration.duration == pytest.approx(3.5)

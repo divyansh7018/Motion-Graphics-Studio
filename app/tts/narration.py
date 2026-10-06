@@ -584,3 +584,49 @@ __all__ = [
     "status_explanation",
     "validate_settings",
 ]
+
+
+def attach_narration_to_scenes(project: Project, tracks: Iterable[NarrationTrack],
+                               *, by: str = "order") -> list[str]:
+    """Point each scene at the narration file that was actually generated.
+
+    Stage C generates one file per script section; Stage E renders whatever the
+    scenes point at.  Nothing linked the two, so a generated voice could never
+    reach a scene.  This is that link.
+
+    ``by="order"`` pairs the Nth generated track with the Nth enabled scene,
+    which is how :func:`plan_outputs` names them.  A scene is only updated when
+    its track really is ``ready`` - otherwise it keeps its previous state rather
+    than claiming audio that does not exist (directive sections 4, 83).
+
+    Returns one note per scene, so a caller can show exactly what changed.
+    """
+    if by != "order":
+        raise ValueError(f"Unknown narration attachment mode '{by}'.")
+    ready = [track for track in tracks
+             if str(getattr(track, "status", "")) == "ready"
+             and str(getattr(track, "path", "") or "")]
+    scenes = [scene for scene in (getattr(project, "scenes", None) or [])
+              if getattr(scene, "enabled", True)]
+    notes: list[str] = []
+    for index, scene in enumerate(scenes):
+        if index >= len(ready):
+            notes.append(f"{scene.name or scene.id}: no narration file generated")
+            continue
+        track = ready[index]
+        duration = float(getattr(track, "actual_duration_seconds", 0.0) or 0.0)
+        # ``file`` is what marks a scene as having narration: validation, the
+        # audio service and the render engine all read that field.  There is no
+        # ``status`` on a scene's NarrationSpec, and assigning one would be
+        # dropped by ``asdict()`` on save, so provenance goes in ``extra`` -
+        # which does round-trip (``_merge`` keeps unknown keys there).
+        scene.narration.file = str(track.path)
+        scene.narration.duration = duration
+        scene.narration.extra["narration_status"] = "ready"
+        scene.narration.extra["source_hash"] = str(getattr(track, "source_hash", "") or "")
+        scene.narration.extra["settings_hash"] = str(getattr(track, "settings_hash", "") or "")
+        scene.narration.extra["sample_rate"] = int(getattr(track, "sample_rate", 0) or 0)
+        scene.narration.extra["channels"] = int(getattr(track, "channels", 0) or 0)
+        notes.append(f"{scene.name or scene.id}: {Path(str(track.path)).name} "
+                     f"({duration:.2f}s)")
+    return notes
