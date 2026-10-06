@@ -227,6 +227,11 @@ def _draw_element(image: Image.Image, element: ResolvedElement, transform: Eleme
                        element.rect.width, element.rect.height),
     )
     _copy_paintable(element, shifted)
+    # Children were laid out in scene space; the layer's origin is layer_rect,
+    # so translate them into layer-local coordinates or they paint off-layer and
+    # vanish (this is what makes an animated group/card keep its children).
+    if shifted.children:
+        shifted.children = _offset_children(element.children, -layer_rect.x, -layer_rect.y)
 
     _paint_element(layer, shifted, ElementTransform(opacity=1.0), ctx)
 
@@ -293,6 +298,26 @@ def _with_value_animation(element: ResolvedElement, progress: float) -> Resolved
 def _copy_paintable(source: ResolvedElement, target: ResolvedElement) -> None:
     for name in _PAINTABLE_FIELDS:
         setattr(target, name, getattr(source, name))
+
+
+def _offset_children(children: list, dx: int, dy: int) -> list:
+    """Copies of ``children`` with their boxes shifted by ``(dx, dy)``.
+
+    Used when an element is painted onto its own animation layer, whose origin is
+    not the frame origin.  The originals are never mutated, so the next frame (or
+    a sibling element) still sees the true scene-space boxes.
+    """
+    import copy as _copy
+
+    shifted = []
+    for child in children:
+        clone = _copy.copy(child)
+        clone.rect = PixelRect(child.rect.x + dx, child.rect.y + dy,
+                               child.rect.width, child.rect.height)
+        if child.children:
+            clone.children = _offset_children(child.children, dx, dy)
+        shifted.append(clone)
+    return shifted
 
 
 def _paint_element(image: Image.Image, element: ResolvedElement, transform: ElementTransform,

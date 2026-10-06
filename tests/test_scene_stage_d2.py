@@ -534,3 +534,40 @@ def test_long_form_50_scenes_save_reload_and_render(paths, settings):
             ctx = LayoutContext(canvas=canvas, safe_area=canvas.safe_area(), palette={})
             frame = render_scene(scene, ctx, time=1.0, scene_duration=3.0)
             assert frame.size == size
+
+
+def test_group_children_stay_visible_under_an_transform():
+    """Regression: an animated group used to paint its children off-layer, so
+    they vanished mid-animation.  The child must be present at every instant."""
+    from app.scene.compose import compose_scene
+
+    def _scene(anim):
+        scene = SceneSpec(id="g", type="blank")
+        scene.elements.append(ElementSpec(
+            id="grp", kind="group", anchor="center", position={"x": 0.5, "y": 0.5},
+            size={"width": {"mode": "fraction", "value": 0.6},
+                  "height": {"mode": "fraction", "value": 0.4}},
+            animation=anim,
+            extra={"children": [
+                {"id": "c1", "kind": "text", "text": "INSIDE", "anchor": "center",
+                 "position": {"x": 0.5, "y": 0.5}, "size": {"mode": "relative", "value": 0.3},
+                 "color": "#ff0000"},
+            ]},
+        ))
+        return scene
+
+    canvas = Canvas(400, 300)
+    ctx = LayoutContext(canvas=canvas, safe_area=canvas.safe_area(), palette={})
+
+    def _red(image):
+        px = image.convert("RGB").load()
+        w, h = image.size
+        return sum(1 for y in range(h) for x in range(w)
+                   if px[x, y][0] > 150 and px[x, y][0] > px[x, y][2] + 40)
+
+    for anim, moment in (({}, 5.0), ({"preset": "fade", "duration": 1.0}, 0.4),
+                         ({"preset": "slide up", "duration": 1.0}, 0.4)):
+        layout = layout_scene(_scene(anim).elements, ctx)
+        frame = compose_scene(layout, background="#000000", time=moment,
+                              scene_duration=5.0, ctx=ctx)
+        assert _red(frame) > 100, f"child disappeared with animation {anim} at t={moment}"
