@@ -24,6 +24,13 @@ from .cache import (
     settings_hash,
     source_hash,
 )
+from .selftest import (
+    NOT_VERIFIED as KOKORO_NOT_VERIFIED,
+    VERIFIED as KOKORO_VERIFIED,
+    KokoroSelfTest,
+    status_headline,
+    verify_kokoro,
+)
 from .capabilities import (
     ENGINE_ID,
     ENGINE_LABEL,
@@ -66,6 +73,11 @@ from .voices import (
 )
 
 __all__ = [
+    "KOKORO_NOT_VERIFIED",
+    "KOKORO_VERIFIED",
+    "KokoroSelfTest",
+    "status_headline",
+    "verify_kokoro",
     "ENGINE_ID",
     "ENGINE_LABEL",
     "GenerationRequest",

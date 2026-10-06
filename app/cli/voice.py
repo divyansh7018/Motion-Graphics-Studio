@@ -406,6 +406,13 @@ def build_voice_parsers(subparsers) -> None:
     preview_p.add_argument("--model-dir", default="")
     preview_p.set_defaults(func=command_voice_preview)
 
+    selftest_p = voice_sub.add_parser(
+        "selftest",
+        help="Prove Kokoro can really generate audio here, and say so plainly.")
+    selftest_p.add_argument("--text", default="", help="Override the test sentence.")
+    selftest_p.add_argument("--model-dir", default="")
+    selftest_p.set_defaults(func=command_voice_selftest)
+
     narration = subparsers.add_parser("narration", help="Generate or inspect project narration.")
     narration_sub = narration.add_subparsers(dest="narration_command")
 
@@ -424,6 +431,30 @@ def build_voice_parsers(subparsers) -> None:
     status_p = narration_sub.add_parser("status", help="Report narration state, staleness and files.")
     status_p.add_argument("project")
     status_p.set_defaults(func=command_narration_status)
+
+
+def command_voice_selftest(args, paths: AppPaths, settings: Settings) -> int:
+    """Generate one real narration file and report the outcome honestly.
+
+    Prints exactly one of the two Stage E states, so the report cannot blur
+    "the pipeline works" with "Kokoro works".  There is no cloud or paid
+    fallback: Kokoro is the only TTS engine in this product.
+    """
+    from app.tts.selftest import verify_kokoro
+
+    scratch = Path(paths.cache_dir) / "selftest" if hasattr(paths, "cache_dir") \
+        else Path(paths.data_root) / "cache" / "selftest"
+    text = str(getattr(args, "text", "") or "").strip()
+    result = verify_kokoro(scratch, **({"text": text} if text else {}))
+
+    print(result.describe())
+    print()
+    print(f"Status: {result.headline}")
+    if result.verified:
+        print("PIPELINE VERIFIED.  KOKORO VERIFIED.")
+    else:
+        print("Any audio used by tests or scripts here is labelled synthetic.")
+    return EXIT_OK if result.verified else EXIT_PROBLEMS
 
 
 def run_script_command(args, paths: AppPaths, settings: Settings) -> int:

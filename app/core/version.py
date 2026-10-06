@@ -15,17 +15,18 @@ APP_ID = "motion-graphics-studio"
 APP_PUBLISHER = "Motion Graphics Studio"
 
 #: Semantic version of the desktop application itself.
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 #: Development stage currently implemented (see docs/ROADMAP.md).
 #: Stage A = application shell + settings + system check.
 #: Stage B = project system (project.json, save, autosave, recovery).
 #: Stage C = script, Kokoro narration and voice.
 #: Stage D = scene engine, storyboard and responsive visual system.
-APP_STAGE = "D"
+#: Stage E = audio mix, subtitles, timeline, final render and QC.
+APP_STAGE = "E"
 
 #: Human readable stage label used in the UI.
-APP_STAGE_LABEL = "Stage D - Scene engine, storyboard and responsive visuals"
+APP_STAGE_LABEL = "Stage E - Audio, subtitles, timeline, final render and QC"
 
 # --------------------------------------------------------------------------
 # On-disk schema versions.  Every persisted format carries its own version so
@@ -40,6 +41,11 @@ SETTINGS_SCHEMA_VERSION = 1
 #:     ``voice``/``theme``/``audio``/``scenes``/``assets``/``export`` sections).
 #: Older files are migrated by :mod:`app.project.migrations`; newer files are
 #: refused with a clear message instead of being partially read.
+#: Stage E added audio, subtitle and export fields to the model, but every one
+#: of them is additive with a default: a schema-3 file written before them loads
+#: with the defaults filled in, and an unknown key is preserved in ``extra``
+#: rather than dropped.  No migration is needed, so the version is unchanged -
+#: bumping it would force a migration that has nothing to do.
 PROJECT_SCHEMA_VERSION = 3
 MIN_SUPPORTED_PROJECT_SCHEMA = 1
 
