@@ -108,7 +108,7 @@ real logic on a machine without a display.
 | `app/scene/jobs.py` | storyboard/preview job bodies and specs |
 | `app/scene/service.py` | **`TimelineService`**: the one timeline, built once and validated (Stage E) |
 | `app/cli/scene.py` | `motion-studio scene list\|validate\|info`, via `SceneService` |
-| `app/media/probe.py` | reads a finished file's real facts from `ffmpeg -i` (no ffprobe needed) |
+| `app/media/probe.py` | reads a finished file's real facts — FFprobe JSON when available, else an explicitly labelled `ffmpeg -i` fallback; records which one it used |
 | `app/audio/ducking.py` | narration windows, merged ranges and the duck gain expression |
 | `app/audio/mix.py` | the FFmpeg filter graph for narration → music → SFX → master |
 | `app/audio/service.py` | **`AudioService`**: resolve, validate, plan, mix and preview |
@@ -119,7 +119,7 @@ real logic on a machine without a display.
 | `app/render/encode.py` | encoder arguments, assembly, black-frame detection |
 | `app/render/output.py` | output naming, sequence, staging, atomic move, render history |
 | `app/render/platform.py` | editable platform presets (YouTube, Shorts, Reels, TikTok, Master, Draft) |
-| `app/render/qc.py` | **`QCService`**: measures the finished file, returns PASS/WARNING/FAIL |
+| `app/render/qc.py` | **`QCService`**: measures the finished file, returns PASS/WARNING/FAIL, and records each check as PASS/FAIL/`CHECK NOT AVAILABLE` |
 | `app/render/engine.py` | **`RenderEngine`**: validate → audio → subtitles → scenes → encode → QC |
 | `app/render/service.py` | **`RenderService`**: plan, export options, platform presets, render |
 | `app/render/jobs.py` | render, audio, subtitle, timeline, QC and capability job bodies |

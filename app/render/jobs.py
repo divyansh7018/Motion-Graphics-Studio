@@ -455,7 +455,8 @@ def render_plan_body(context: JobContext) -> dict:
 
     service = RenderService(_tools(context), project_dir=Path(project_dir),
                             paths=context.paths)
-    plan = service.plan(project, overrides=context.get("overrides") or None)
+    plan = service.plan(project, overrides=context.get("overrides") or None,
+                        two_pass=bool(context.get("two_pass", False)))
     reporter.update(current=1.0, message="Plan ready")
     return {
         "ready": plan.ready,

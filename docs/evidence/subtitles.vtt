@@ -1,16 +1,20 @@
 WEBVTT
 
-00:00:00.000 --> 00:00:01.900
-This is the first scene of the Stage E
-verification matrix.
+00:00:00.000 --> 00:00:00.800
+Welcome.
 
-00:00:02.000 --> 00:00:04.200
-The second scene carries an imported
-image.
+00:00:00.800 --> 00:00:02.350
+This video was rendered end to end by the
+Stage E pipeline.
 
-00:00:04.300 --> 00:00:06.800
-The third scene shows a chart drawn from
-real data.
+00:00:02.350 --> 00:00:05.050
+Scenes can carry imported images, charts,
+numbers and text.
 
-00:00:06.900 --> 00:00:09.700
-And the fourth closes on a single number.
+00:00:05.050 --> 00:00:08.100
+Charts are laid out responsively at
+whatever resolution you export.
+
+00:00:08.100 --> 00:00:11.500
+That is the whole pipeline, from script to
+a verified MP4 file.

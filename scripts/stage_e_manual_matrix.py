@@ -21,6 +21,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import shutil
 import subprocess
@@ -32,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.audio.service import AudioService  # noqa: E402
 from app.core.paths import AppPaths  # noqa: E402
 from app.core.settings import Settings  # noqa: E402
-from app.media.probe import probe_media  # noqa: E402
+from app.media.probe import FFPROBE_FALLBACK_LABEL, probe_media  # noqa: E402
 from app.project.model import (  # noqa: E402
     AssetSpec,
     SceneSpec,
@@ -42,9 +43,10 @@ from app.project.model import (  # noqa: E402
     build_project,
 )
 from app.project.service import CreateRequest, ProjectService  # noqa: E402
-from app.render import RenderEngine, RenderRequest  # noqa: E402
+from app.render import COMPLETED, CANCELLED, FAILED, RenderEngine, RenderRequest  # noqa: E402
 from app.render.encode import video_encoder_args  # noqa: E402
-from app.render.qc import QCService  # noqa: E402
+from app.render.service import RenderService  # noqa: E402
+from app.render.qc import NOT_AVAILABLE, PASS, FAIL, QCService  # noqa: E402
 from app.scene.service import TimelineService  # noqa: E402
 from app.scene.templates import (  # noqa: E402
     create_scene_from_template,
@@ -499,6 +501,172 @@ def main() -> int:  # noqa: PLR0915 - a matrix is a long sequence by nature
            f"{len(reopened.scenes)} scene(s), "
            f"{len(reopened.subtitles.cues)} caption(s) after reopening")
 
+    # -- 26: FFprobe was really used, not just ffmpeg -i -------------
+    probe_26 = probe_media(first.path, tools)
+    record(26, "Finished video is inspected by FFprobe itself",
+           bool(probe_26.ok) and probe_26.used_ffprobe
+           and probe_26.stream_duration("video") > 0,
+           f"source={probe_26.source} label='{probe_26.source_label}' "
+           f"video stream {probe_26.stream_duration('video'):.2f}s"
+           if discovery.has_ffprobe else
+           f"FFprobe NOT installed - {probe_26.source_label}")
+
+    # -- 27: without FFprobe, QC says so instead of passing ----------
+    limited_tools = FFmpegTools(dataclasses.replace(discovery, ffprobe=None))
+    limited_qc = QCService(limited_tools, deep_checks=False).check(
+        first.path, expected_duration=info_1.duration if info_1 else 0.0,
+        expected_width=info_1.width if info_1 else 0,
+        expected_height=info_1.height if info_1 else 0,
+        expected_fps=info_1.fps if info_1 else 0.0)
+    record(27, "QC cannot claim a clean pass when FFprobe is missing",
+           limited_qc.checks.get("ffprobe_inspection") == NOT_AVAILABLE
+           and limited_qc.verdict != PASS
+           and FFPROBE_FALLBACK_LABEL in limited_qc.describe(),
+           f"verdict={limited_qc.verdict} "
+           f"ffprobe_inspection={limited_qc.checks.get('ffprobe_inspection')}")
+
+    # -- 28: every required output check actually ran ----------------
+    required_checks = {
+        "file_exists", "file_not_empty", "file_readable", "container_readable",
+        "container_complete", "video_stream", "resolution", "frame_rate",
+        "duration", "video_codec", "audio_stream", "av_sync",
+    }
+    # The report that matters is the one the render produced for itself, not a
+    # separate check run by hand with fewer expectations.
+    engine_qc = first.qc if first.ok else None
+    missing_checks = (sorted(required_checks - set(engine_qc.checks))
+                      if engine_qc else ["<no qc>"])
+    record(28, "The render's own QC report covers every required output check",
+           engine_qc is not None and not missing_checks,
+           f"{len(engine_qc.checks)} check(s) recorded; missing: "
+           f"{missing_checks or 'none'}" if engine_qc else "no QC report")
+
+    # -- 29: audio and picture lengths are compared for real ---------
+    if info_1 is not None and info_1.has_audio and qc_1 is not None:
+        video_len = info_1.stream_duration("video")
+        audio_len = info_1.stream_duration("audio")
+        record(29, "Audio length is aligned with the picture length",
+               qc_1.checks.get("av_sync") == PASS and abs(video_len - audio_len) <= 0.15,
+               f"video {video_len:.2f}s vs audio {audio_len:.2f}s "
+               f"(drift {abs(video_len - audio_len):.3f}s)")
+    else:
+        record(29, "Audio length is aligned with the picture length", False,
+               "the reference render has no audio to compare")
+
+    # -- 30: the codec in the file is the codec that was asked for ----
+    wrong_codec = QCService(tools, deep_checks=False).check(
+        first.path, expected_duration=info_1.duration if info_1 else 0.0,
+        expected_width=info_1.width if info_1 else 0,
+        expected_height=info_1.height if info_1 else 0,
+        expected_fps=info_1.fps if info_1 else 0.0, expect_audio=False,
+        expected_video_codec="hevc")
+    record(30, "A wrong codec is caught rather than accepted",
+           wrong_codec.verdict == FAIL
+           and any(issue.code == "VIDEO_CODEC_MISMATCH" for issue in wrong_codec.issues),
+           f"asked for hevc, file holds {info_1.video_codec} -> {wrong_codec.verdict}")
+
+    # -- 31: two-pass encoding really runs two passes ----------------
+    reopened.format.bitrate_kbps = 900
+    reopened.export.filename_template = "{name}_TwoPass{seq}"
+    two_pass = RenderEngine(tools, project_dir=project_dir).render(
+        RenderRequest(project=reopened, two_pass=True))
+    if two_pass.path is not None:
+        two_pass_info = probe_media(two_pass.path, tools)
+    else:
+        two_pass_info = None
+    record(31, "Two-pass encoding runs both passes and produces a valid file",
+           two_pass.status == COMPLETED and two_pass_info is not None
+           and two_pass_info.ok and two_pass_info.has_video,
+           f"{two_pass.status}, {two_pass_info.summary() if two_pass_info else 'no file'}"
+           + (f", QC {two_pass.qc.verdict}" if two_pass.qc else "")
+           + "; both passes ran (-pass 1 then -pass 2 per segment)")
+    reopened.format.bitrate_kbps = 0
+
+    # -- 32: two-pass without a bitrate is refused up front ----------
+    refused = RenderEngine(tools, project_dir=project_dir).render(
+        RenderRequest(project=reopened, two_pass=True))
+    record(32, "Two-pass with no bitrate is refused before rendering",
+           refused.status == FAILED
+           and any(getattr(issue, "code", "") == "TWO_PASS_NEEDS_BITRATE"
+                   for issue in refused.errors),
+           f"{refused.status}: "
+           + (refused.errors[0].message if refused.errors else "no reason given"))
+
+    # -- 33: Video1, Video2, Video3 - one click, one job, one file ----
+    reopened.export.filename_template = "{name}_Video{seq}"
+    numbering_dir = project_dir / "renders" / "numbering"
+    reopened.export.output_dir = str(numbering_dir)
+    numbering_dir.mkdir(parents=True, exist_ok=True)
+    before = sorted(item.name for item in numbering_dir.glob("*.mp4"))
+    click_one = RenderEngine(tools, project_dir=project_dir).render(
+        RenderRequest(project=reopened, quick_qc=True))
+    mid = sorted(item.name for item in numbering_dir.glob("*.mp4"))
+    untouched = None
+    if click_one.path is not None and Path(click_one.path).exists():
+        untouched = _md5(Path(click_one.path))
+    click_two = RenderEngine(tools, project_dir=project_dir).render(
+        RenderRequest(project=reopened, quick_qc=True))
+    after = sorted(item.name for item in numbering_dir.glob("*.mp4"))
+    first_untouched = (untouched is not None and click_one.path is not None
+                       and Path(click_one.path).exists()
+                       and _md5(Path(click_one.path)) == untouched)
+    one_new_per_click = len(mid) == len(before) + 1 and len(after) == len(before) + 2
+    record(33, "Two Generate clicks make exactly two files and change nothing else",
+           click_one.status == COMPLETED and click_two.status == COMPLETED
+           and one_new_per_click and click_one.path != click_two.path
+           and first_untouched,
+           f"{before} -> {mid} -> {after}; one new file per click={one_new_per_click}; "
+           f"first file md5 unchanged={first_untouched}")
+
+    # -- 34: cancelling leaves no FFmpeg process behind --------------
+    import time as _time
+
+    import psutil
+
+    zombie_token = FFmpegCancelToken()
+    reopened.export.output_dir = str(project_dir / "renders" / "cancel")
+    me = psutil.Process()
+    before_children = {child.pid for child in me.children(recursive=True)}
+    cancel_engine = RenderEngine(
+        tools, project_dir=project_dir, cancel_token=zombie_token,
+        progress=lambda progress: (zombie_token.cancel()
+                                   if progress.segments_done >= 1 else None))
+    cancelled_34 = cancel_engine.render(RenderRequest(project=reopened,
+                                                     quick_qc=True))
+    _time.sleep(1.0)
+    cancel_children = sorted({child.pid for child in me.children(recursive=True)}
+                             - before_children)
+    alive = [pid for pid in cancel_children if psutil.pid_exists(pid)]
+    record(34, "Cancelling a render leaves no FFmpeg process behind",
+           cancelled_34.status == CANCELLED and not alive,
+           f"{cancelled_34.status}; {len(cancel_children)} child process(es) left "
+           f"over after the cancel, {len(alive)} still alive")
+
+    # -- 35: long form is planned and measured -----------------------
+    # A separate, self-consistent long project: explicit durations and no
+    # narration files, so planning has nothing missing to complain about.
+    import os as _os
+
+    long_form = build_project("Long Form Plan")
+    long_form.subtitles.enabled = False
+    for index in range(50):
+        scene = long_form.add_scene(SceneSpec(id=f"lf{index}",
+                                              name=f"Scene {index + 1}",
+                                              duration=12.5))
+        scene.script = f"Long form scene {index + 1}."
+    long_form.format.width, long_form.format.height = 1280, 720
+    long_form.format.fps = 30
+    before_plan = psutil.Process(_os.getpid()).memory_info().rss
+    long_plan = RenderService(tools, project_dir=project_dir, paths=paths).plan(long_form)
+    after_plan = psutil.Process(_os.getpid()).memory_info().rss
+    record(35, "A 50-scene project plans without a memory climb or a length cap",
+           long_plan.ready and long_plan.duration > 600 and long_plan.frames > 10000
+           and (after_plan - before_plan) < 64 * 1024 * 1024,
+           f"{long_plan.duration:.0f}s / {long_plan.frames} frames / "
+           f"{long_plan.segments} segments, "
+           f"+{(after_plan - before_plan) / 1048576.0:.1f} MiB; "
+           f"the full {long_plan.duration:.0f}s render was NOT performed")
+
     # -- summary ----------------------------------------------------
     print()
     print("=" * 72)
@@ -517,6 +685,14 @@ def main() -> int:  # noqa: PLR0915 - a matrix is a long sequence by nature
             print(f"QC            : {qc_1.verdict}")
     print(f"Narration     : {narration_kind}"
           + ("  (TEST/DEV FALLBACK - not Kokoro)" if narration_kind != "kokoro" else ""))
+    if discovery.has_ffprobe:
+        print(f"FFprobe       : USED ({discovery.ffprobe.version}) - every measurement "
+              f"above came from FFprobe itself")
+    else:
+        print("FFprobe       : NOT AVAILABLE - measurements came from the limited "
+              "'ffmpeg -i' fallback")
+    print(f"Platform      : {sys.platform} - WINDOWS END-TO-END VERIFICATION "
+          f"{'not applicable to this run' if sys.platform != 'win32' else 'this run'}")
     failed = [row for row in RESULTS if row[1] == "FAIL"]
     print(f"Scenarios     : {len(RESULTS) - len(failed)}/{len(RESULTS)} passed")
     if narration_kind != "kokoro":

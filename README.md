@@ -14,11 +14,21 @@ pages — Audio, Subtitles, Timeline and Render — and keeps the Stage A shell,
 the Stage B project system, the Stage C script + Kokoro narration and the
 Stage D scene engine intact.
 
-> **Kokoro status: NOT VERIFIED on the Stage E test machine.** The render
-> pipeline was verified end to end with explicitly labelled synthetic test
-> narration, because no Kokoro model weights were available and Hugging Face is
-> unreachable there. Run `motion-studio voice selftest` on a machine with the
-> weights for the real verdict. See `docs/STAGE_E_REPORT.md`.
+> **Three statuses that must not be blurred together:**
+>
+> * **PIPELINE VERIFIED** — 1181 tests, a 35/35 manual matrix and two real MP4
+>   renders, every measurement taken with FFprobe.
+> * **KOKORO NOT VERIFIED — TEST FALLBACK USED** — the `kokoro` package is
+>   installed but there are no model weights on the verification machine, so the
+>   narration in every test render is explicitly labelled synthetic audio. Run
+>   `motion-studio voice selftest` on a machine with the weights for the real
+>   verdict.
+> * **WINDOWS NOT VERIFIED** — the verification ran on Linux. Windows paths,
+>   `%TEMP%`, shortcut independence and `ffmpeg.exe` discovery are still to be
+>   checked on a real Windows 10/11 machine.
+>
+> The Stage E gate is therefore **not** declared complete. See
+> `docs/STAGE_E_REPORT.md` §15 for the full evidence table.
 
 ---
 
@@ -63,7 +73,10 @@ Stage D scene engine intact.
 | Quality check on the finished file (PASS / WARNING / FAIL) | ✅ Stage E (this build) |
 | Render cancellation and resume after interruption | ✅ Stage E (this build) |
 | Render, audio, subtitle and timeline command line | ✅ Stage E (this build) |
-| Kokoro narration verified on this machine | ⚠️ not verified — no model weights |
+| Kokoro narration verified on this machine | ⚠️ NOT VERIFIED — no model weights |
+| Windows 10/11 end-to-end run | ⚠️ NOT VERIFIED — verification ran on Linux |
+| FFprobe used to measure finished files | ✅ verified (6.0-static) |
+| Two-pass encoding | ✅ verified — both passes really run |
 | Image generation and a video library | ⏳ later stages |
 | Licensing, accounts, payments | ❌ not in this build (Phase 2, later) |
 

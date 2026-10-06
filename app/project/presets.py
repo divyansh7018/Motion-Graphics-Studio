@@ -37,6 +37,20 @@ CODEC_ENCODERS: dict[str, str] = {
     "vp9_cpu": "libvpx-vp9",
 }
 
+#: Codec id -> the codec name a finished file reports.  FFprobe names the stream
+#: ("h264"), not the encoder that made it ("libx264"), so verifying a render
+#: needs this translation.  Without it a correct render would look wrong.
+CODEC_STREAM_NAMES: dict[str, str] = {
+    "h264_cpu": "h264",
+    "hevc_cpu": "hevc",
+    "vp9_cpu": "vp9",
+}
+
+#: Encoders that accept ``-pass 1`` / ``-pass 2``.  Asking an encoder that does
+#: not support multi-pass to do two passes fails expensively, so it is checked
+#: before any frame is drawn.
+TWO_PASS_ENCODERS: tuple[str, ...] = ("libx264", "libx265", "libvpx-vp9")
+
 CODEC_LABELS: dict[str, str] = {
     "h264_cpu": "H.264 (CPU, x264) - plays everywhere",
     "hevc_cpu": "H.265 / HEVC (CPU) - smaller files, slower",
@@ -109,6 +123,11 @@ def audio_codec_in_container(audio_codec: str, container: str) -> bool:
 
 def default_audio_codec(container: str) -> str:
     return AUDIO_CODECS_BY_CONTAINER.get(container, ("aac",))[0]
+
+
+def stream_codec_name(codec_id: str) -> str:
+    """The codec name a finished file reports for one of our codec ids."""
+    return CODEC_STREAM_NAMES.get(str(codec_id), str(codec_id))
 
 
 def default_codec(container: str) -> str:
@@ -523,6 +542,8 @@ __all__ = [
     "CODECS_BY_CONTAINER",
     "CODEC_ENCODERS",
     "CODEC_LABELS",
+    "CODEC_STREAM_NAMES",
+    "TWO_PASS_ENCODERS",
     "CONTAINERS",
     "CRF_RANGES",
     "ENCODER_PRESETS",

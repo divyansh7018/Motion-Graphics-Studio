@@ -14,6 +14,7 @@ from typing import Any, Optional
 from ..project.presets import (
     CODEC_ENCODERS,
     CODEC_LABELS,
+    TWO_PASS_ENCODERS,
     CODECS_BY_CONTAINER,
     CONTAINERS,
     PIXEL_FORMATS_BY_CODEC,
@@ -155,11 +156,15 @@ def rate_control_modes(codec_id: str) -> tuple[str, ...]:
 # --------------------------------------------------------------------------
 
 def validate_export_settings(settings: Any, caps: EncoderCapabilities, *,
-                            duration: float = 0.0) -> list:
+                            duration: float = 0.0, two_pass: bool = False) -> list:
     """Check an export configuration before anything expensive happens.
 
     Every problem is returned with what to do about it, and the render must not
     start while any error is present (directive sections 19, 27, 47).
+
+    ``two_pass`` is checked here rather than ignored: a two-pass checkbox that
+    silently does nothing when no bitrate is set is a control that lies about
+    what it does, so the combination is refused with a reason instead.
     """
     issues: list[CapabilityIssue] = []
     width = int(getattr(settings, "width", 0) or 0)
@@ -254,6 +259,24 @@ def validate_export_settings(settings: Any, caps: EncoderCapabilities, *,
             f"A bitrate of {bitrate} kbps is too low for {width}x{height}@{fps}.",
             "Raise the bitrate, or lower the resolution.",
         ))
+
+    # Two-pass: only meaningful with a target bitrate, and only on encoders that
+    # accept -pass.  Without this the option would quietly do nothing.
+    if two_pass:
+        encoder = CODEC_ENCODERS.get(codec, "")
+        if encoder not in TWO_PASS_ENCODERS:
+            issues.append(CapabilityIssue(
+                "TWO_PASS_UNSUPPORTED",
+                f"{CODEC_LABELS.get(codec, codec)} cannot do two-pass encoding.",
+                "Turn off two-pass, or choose H.264, HEVC or VP9.",
+            ))
+        elif bitrate <= 0:
+            issues.append(CapabilityIssue(
+                "TWO_PASS_NEEDS_BITRATE",
+                "Two-pass encoding needs a target bitrate, but the quality preset "
+                "is using constant quality instead.",
+                "Set a target bitrate in the export settings, or turn two-pass off.",
+            ))
 
     if duration is not None and duration <= 0:
         issues.append(CapabilityIssue(

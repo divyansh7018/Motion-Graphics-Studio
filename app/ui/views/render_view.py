@@ -240,7 +240,9 @@ class RenderPage(Page):
         self.two_pass = QCheckBox("Two-pass encoding")
         self.two_pass.toggled.connect(self._on_changed)
         card.add(Row("Two-pass", self.two_pass,
-                     "Only used when a bitrate is set. Takes about twice as long."))
+                     "Encodes twice for a steadier bitrate: it takes about twice as "
+                     "long and needs a target bitrate. With constant quality still "
+                     "selected the plan says so instead of quietly ignoring it."))
 
         self.advanced_mode = QCheckBox("Show every setting")
         self.advanced_mode.toggled.connect(self._on_advanced_toggled)
@@ -620,7 +622,8 @@ class RenderPage(Page):
         if self._plan_job is not None:
             self.plan_hint.setText("A plan is already being worked out.")
             return
-        job = self._submit(render_plan_spec(self._payload()))
+        job = self._submit(render_plan_spec(self._payload(),
+                                            two_pass=self.two_pass.isChecked()))
         if job is None:
             self.plan_hint.setText("A plan is already being worked out.")
             return

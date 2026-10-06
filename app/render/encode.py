@@ -11,6 +11,7 @@ never reaches this module.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -126,41 +127,124 @@ def format_encoder_args(settings: Any) -> list[str]:
     return ["-f", container]
 
 
-def stream_encode(*, tools: Any, frames: Iterable[bytes], output: Path, width: int,
+def stream_encode(*, tools: Any, frames: Any, output: Path, width: int,
                   height: int, fps: int, settings: Any, cancel_token: Any = None,
                   timeout: float = 7200.0, progress: Optional[Callable[[int], None]] = None,
                   extra_args: Optional[Sequence[str]] = None,
-                  audio: Optional[Path] = None) -> EncodeResult:
+                  audio: Optional[Path] = None, two_pass: bool = False,
+                  pass_stats: Optional[Path] = None) -> EncodeResult:
     """Encode a stream of raw RGB24 frames straight into a file.
 
     The frames are consumed lazily, so the caller can be a generator that renders
     one frame at a time and never holds the video.
+
+    ``two_pass`` runs a real two-pass encode: one analysis pass that writes the
+    encoder's statistics file, then the encode that uses it.  Both passes are
+    separate FFmpeg runs with ``-pass 1`` and ``-pass 2``; the statistics file is
+    named explicitly so parallel or repeated renders cannot share one.  Two
+    passes need the frames twice, so ``frames`` may also be a callable that
+    returns a fresh iterator - with a single-use stream there is nothing to read
+    a second time and that is reported rather than silently halved.
     """
     import time
 
     tools.ensure_ffmpeg()
     started = time.monotonic()
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    bitrate = int(getattr(settings, "bitrate_kbps", 0) or 0)
+    do_two_pass = bool(two_pass) and bitrate > 0
+    if two_pass and not do_two_pass:
+        # Never pretend a pass happened.  The caller validated this combination
+        # already; this is the last line of defence.
+        return EncodeResult(
+            ok=False, output=output, returncode=-1,
+            error="Two-pass encoding needs a target bitrate, but none is set.",
+            what_to_do="Set a target bitrate in the export settings, or turn "
+                       "two-pass off.",
+            command="")
+    if do_two_pass and not callable(frames):
+        return EncodeResult(
+            ok=False, output=output, returncode=-1,
+            error="Two-pass encoding needs to read the frames twice, but this "
+                  "frame source can only be read once.",
+            what_to_do="Turn off two-pass encoding, or render again.",
+            command="")
+
+    stats = Path(pass_stats) if pass_stats is not None else \
+        output.parent / f"{output.stem}.pass"
+    passes: tuple[int, ...] = (1, 2) if do_two_pass else (0,)
+    frame_source: Callable[[], Iterable[bytes]] = frames if callable(frames) \
+        else (lambda: frames)
+
+    result: Optional[EncodeResult] = None
+    for position, number in enumerate(passes):
+        final = position == len(passes) - 1
+        result = _run_stream_pass(
+            tools=tools, frames=frame_source(), output=output, width=width,
+            height=height, fps=fps, settings=settings, cancel_token=cancel_token,
+            timeout=timeout, progress=progress if final else None,
+            extra_args=extra_args, audio=audio if final else None,
+            pass_number=number, pass_stats=stats, started=started)
+        if not result.ok:
+            _remove_pass_logs(stats)
+            return result
+    _remove_pass_logs(stats)
+    if result is not None and len(passes) > 1:
+        result.details["passes"] = len(passes)
+    return result
+
+
+def _remove_pass_logs(stats: Path) -> None:
+    """Delete the encoder's statistics files; they are scratch, not output."""
+    for suffix in ("-0.log", "-0.log.mbtree", "-0.log.temp", "-0.log.x264"):
+        try:
+            Path(f"{stats}{suffix}").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _run_stream_pass(*, tools: Any, frames: Iterable[bytes], output: Path,
+                     width: int, height: int, fps: int, settings: Any,
+                     cancel_token: Any, timeout: float,
+                     progress: Optional[Callable[[int], None]],
+                     extra_args: Optional[Sequence[str]], audio: Optional[Path],
+                     pass_number: int, pass_stats: Path,
+                     started: float) -> EncodeResult:
+    """One FFmpeg encode.  ``pass_number`` is 0 for a normal single-pass run."""
+    import time
+
+    analysis_only = pass_number == 1
     argv: list[str] = [str(tools.ffmpeg), "-hide_banner", "-nostdin", "-y", "-v", "error", "-stats"]
     argv += raw_input_args(width, height, fps)
-    if audio is not None:
+    if audio is not None and not analysis_only:
         argv += ["-i", str(audio)]
     if extra_args:
         argv += [str(a) for a in extra_args]
-    argv += video_encoder_args(settings)
-    if audio is not None:
+    argv += video_encoder_args(settings, two_pass=pass_number,
+                               stats_file=pass_stats if pass_number else None)
+    if audio is not None and not analysis_only:
         audio_codec = str(getattr(settings, "audio_codec", "aac") or "aac")
         argv += ["-c:a", audio_codec,
                  "-b:a", f"{int(getattr(settings, 'audio_bitrate_kbps', 192) or 192)}k",
-                 "-ar", str(int(getattr(settings, "sample_rate", 48000) or 48000)),
+                 "-ar", str(int(getattr(settings, 'sample_rate', 48000) or 48000)),
                  "-map", "0:v:0", "-map", "1:a:0", "-shortest"]
     else:
         argv += ["-an"]
-    argv += [str(output)]
+    if analysis_only:
+        # The first pass exists only to measure the picture, so its output is
+        # discarded rather than written anywhere.
+        argv += ["-f", "null", os.devnull]
+    else:
+        argv += [str(output)]
     command = " ".join(_quote(part) for part in argv)
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    log_event("RENDER_ENCODE_START", f"Encoding {output.name}", command=command,
-        width=width, height=height, fps=fps)
+    label = f"Encoding {output.name}" if not pass_number else \
+        f"Encoding {output.name} (pass {pass_number} of 2)"
+    log_event("RENDER_ENCODE_START", label, command=command,
+              width=width, height=height, fps=fps,
+              two_pass=pass_number or None)
 
     written = 0
     cancelled = False
@@ -226,6 +310,23 @@ def stream_encode(*, tools: Any, frames: Iterable[bytes], output: Path, width: i
         return EncodeResult(ok=False, output=output, returncode=code, stderr=stderr,
                             error=error_text or f"FFmpeg exited with code {code}.",
                             what_to_do=what_to_do or "See the FFmpeg output below.",
+                            frames_written=written, seconds=seconds, command=command)
+
+    if pass_number == 1:
+        if not Path(f"{pass_stats}-0.log").exists():
+            log_event("RENDER_ENCODE_FAILED", "Pass 1 produced no statistics file",
+                      output=str(output))
+            return EncodeResult(
+                ok=False, output=output, returncode=code, stderr=stderr,
+                error="The first encoding pass produced no statistics file, so a "
+                      "second pass would be no different from a single pass.",
+                what_to_do="Turn off two-pass encoding, or check the FFmpeg output "
+                           "below.",
+                frames_written=written, seconds=seconds, command=command)
+        log_event("RENDER_ENCODE_PASS_DONE", "Analysis pass finished",
+                  output=str(output), frames_written=written,
+                  stats=str(pass_stats))
+        return EncodeResult(ok=True, output=output, returncode=0, stderr=stderr,
                             frames_written=written, seconds=seconds, command=command)
 
     log_event("RENDER_ENCODE_DONE", f"Encoded {written} frames in {seconds:.1f}s",

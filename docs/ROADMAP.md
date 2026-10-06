@@ -146,7 +146,7 @@ See ``docs/STAGE_D_REPORT.md`` for the full evidence.  Highlights:
 
 ---
 
-## Stage E — audio, subtitles, timeline, render and QC (complete)
+## Stage E — audio, subtitles, timeline, render and QC (implemented; gate NOT signed off)
 
 See ``docs/STAGE_E_REPORT.md`` for the full evidence.  Highlights:
 
@@ -171,12 +171,42 @@ See ``docs/STAGE_E_REPORT.md`` for the full evidence.  Highlights:
   PASS / WARNING / FAIL.  A FAIL is never reported as success.
 * Four working pages (Audio, Subtitles, Timeline, Render) and
   ``motion-studio render|audio|subtitles …`` commands sharing the same services.
-* 1163 automated tests in total (268 added in this stage).
+* 1181 automated tests in total (268 added in Stage E, plus 20 in the final
+  hardening pass).
 
-**Kokoro was not verified on the Stage E test machine** - no model weights were
-available.  The pipeline was verified with explicitly labelled synthetic test
-narration, and ``motion-studio voice selftest`` reports which of the two states
-applies.  See the report before treating Stage E as signed off.
+### The final hardening pass
+
+A verification pass ran after the suite was already green, and found four things
+it was hiding:
+
+* a QC check that compared the container duration with **itself**, so a video
+  whose audio was seconds shorter than its picture passed;
+* a two-pass checkbox whose value never reached FFmpeg;
+* ``log_event(..., message=...)`` duplicating a positional argument, so a
+  project with no audio at all failed to render with an internal error;
+* a QC report with no way to say "I could not run that check", which let an
+  unavailable dependency look like a pass.
+
+It also produced the first real measurements rather than design claims:
+FFprobe 6.0 verified and actually used, two-pass encoding verified with both
+passes in the log, and a memory profile (peak 138.9 MiB) from
+``scripts/stage_e_profile.py``.
+
+### Why the gate is not signed off
+
+Two required-for-release items were **not** verified on the verification
+machine, for environmental reasons, and are labelled separately rather than
+being folded into the rest:
+
+* **KOKORO NOT VERIFIED** - no model weights available.  The pipeline was
+  verified with explicitly labelled synthetic test narration, and
+  ``motion-studio voice selftest`` reports which of the two states applies.
+* **WINDOWS NOT VERIFIED** - the verification ran on Linux, so Windows paths,
+  temp handling, shortcut independence and ``ffmpeg.exe`` discovery are
+  untested.
+
+Every other mandatory Stage E criterion is verified by a real run.  See
+``docs/STAGE_E_REPORT.md`` §15.
 
 ## Later stages (summary)
 

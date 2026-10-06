@@ -24,7 +24,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-__all__ = ["MediaInfo", "StreamInfo", "probe_media", "parse_ffmpeg_info", "format_timecode"]
+__all__ = [
+    "MediaInfo",
+    "StreamInfo",
+    "probe_media",
+    "parse_ffmpeg_info",
+    "format_timecode",
+    "FFPROBE_SOURCE",
+    "FFMPEG_FALLBACK_SOURCE",
+    "FFPROBE_FALLBACK_LABEL",
+]
+
+#: ``MediaInfo.source`` when the real FFprobe answered.
+FFPROBE_SOURCE = "ffprobe"
+#: ``MediaInfo.source`` when FFprobe was absent and ``ffmpeg -i`` was parsed.
+FFMPEG_FALLBACK_SOURCE = "ffmpeg -i"
+#: The only wording allowed for the fallback in a user-facing report.
+FFPROBE_FALLBACK_LABEL = "FFprobe fallback / limited probe (ffmpeg -i)"
 
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
@@ -105,8 +121,43 @@ class MediaInfo:
     def aspect_ratio(self) -> float:
         return (self.width / self.height) if self.height else 0.0
 
+    def stream_duration(self, kind: str) -> float:
+        """The duration FFmpeg reported for one kind of stream.
+
+        The container duration and a stream's own duration are different
+        numbers: a video whose audio track is shorter than its picture track has
+        one container duration but two stream durations.  Comparing the
+        container duration with itself would never find that, so the real check
+        asks for each stream separately (Stage E directive section 9).
+        """
+        longest = 0.0
+        for stream in self.streams:
+            if stream.kind == kind and float(stream.duration or 0.0) > longest:
+                longest = float(stream.duration or 0.0)
+        return longest
+
     def duration_label(self) -> str:
         return format_timecode(self.duration)
+
+    @property
+    def used_ffprobe(self) -> bool:
+        """Whether the real FFprobe produced these facts.
+
+        This is deliberately a separate question from "could the file be read".
+        A file can be read perfectly well by the ``ffmpeg -i`` fallback while
+        FFprobe is missing, and a report must never describe that as FFprobe
+        verification (Stage E directive section 2).
+        """
+        return self.source == FFPROBE_SOURCE
+
+    @property
+    def source_label(self) -> str:
+        """How the facts were obtained, in words a report can print verbatim."""
+        if self.source == FFPROBE_SOURCE:
+            return "FFprobe"
+        if self.source == FFMPEG_FALLBACK_SOURCE:
+            return "FFprobe fallback / limited probe (ffmpeg -i)"
+        return self.source or "not probed"
 
     def summary(self) -> str:
         if not self.ok:
@@ -158,7 +209,7 @@ def parse_ffmpeg_info(text: str, *, path: str = "", size_bytes: int = 0) -> Medi
     This is the fallback used when FFprobe is not installed.  It reads real
     decoder output, so the numbers are genuine; only the presentation differs.
     """
-    info = MediaInfo(path=path, source="ffmpeg -i", size_bytes=size_bytes)
+    info = MediaInfo(path=path, source=FFMPEG_FALLBACK_SOURCE, size_bytes=size_bytes)
 
     duration = _DURATION_RE.search(text)
     if duration:
@@ -225,7 +276,7 @@ def _channel_count(text: str) -> int:
 
 
 def _info_from_ffprobe(payload: dict, *, path: str = "", size_bytes: int = 0) -> MediaInfo:
-    info = MediaInfo(path=path, source="ffprobe", size_bytes=size_bytes, ok=True)
+    info = MediaInfo(path=path, source=FFPROBE_SOURCE, size_bytes=size_bytes, ok=True)
     fmt = payload.get("format") or {}
     try:
         info.duration = float(fmt.get("duration", 0.0) or 0.0)

@@ -34,6 +34,7 @@ from ..scene.canvas import Canvas
 from ..scene.storyboard import build_context
 from ..scene.timing import build_timeline
 from ..scene.service import TimelineService
+from ..project.presets import stream_codec_name
 from ..scene.validate import validate_project_scenes
 from ..subtitles.service import SubtitleService
 from ..subtitles.service import generate_cues, to_ass, to_srt, to_vtt, write_subtitle_file
@@ -248,7 +249,8 @@ class RenderEngine:
             self.caps = detect_capabilities(self.tools)
         return self.caps
 
-    def validate(self, project: Any, *, duration: float = 0.0) -> tuple[list, list]:
+    def validate(self, project: Any, *, duration: float = 0.0,
+                 two_pass: bool = False) -> tuple[list, list]:
         """Everything that must be right before drawing a single frame.
 
         Returns ``(errors, warnings)``.  Errors block the render; warnings are
@@ -259,7 +261,8 @@ class RenderEngine:
         settings = project.format
         caps = self.capabilities()
 
-        for issue in validate_export_settings(settings, caps, duration=duration):
+        for issue in validate_export_settings(settings, caps, duration=duration,
+                                              two_pass=two_pass):
             (errors if issue.severity == "error" else warnings).append(issue)
 
         canvas = Canvas(settings.width, settings.height, settings.fps)
@@ -404,7 +407,8 @@ class RenderEngine:
         # -- VALIDATING --------------------------------------------------
         self._check_cancelled()
         self._set_state(VALIDATING, "Checking the project before rendering")
-        errors, warnings = self.validate(project, duration=timeline.total_duration)
+        errors, warnings = self.validate(project, duration=timeline.total_duration,
+                                         two_pass=request.two_pass)
         for issue in plan.issues:
             (errors if issue.severity == "error" else warnings).append(issue)
         disk_issue = self.disk_check(settings, plan.total_frames,
@@ -444,8 +448,11 @@ class RenderEngine:
             if not audio.ok:
                 if audio.plan is not None and not audio.plan.has_audio:
                     # A video with no audio is legitimate; say so and carry on.
+                    # ``message`` is log_event's second positional argument, so
+                    # passing it as a keyword too raised TypeError and failed the
+                    # whole render for a project that simply has no audio.
                     log_event("RENDER_AUDIO_EMPTY", "No audio tracks to mix",
-                              message=audio.message)
+                              detail=audio.message)
                     master_audio = None
                     warnings.extend(audio.issues)
                 else:
@@ -521,13 +528,23 @@ class RenderEngine:
                             f"Rendering {label} ({segment.index + 1} of "
                             f"{len(plan.segments)})",
                             percent=self._percent(segment))
+            # Two passes have to read the frames twice, so the source is handed
+            # over as a callable that can be started again - a generator cannot.
+            if request.two_pass:
+                frames: Any = (lambda seg=segment: source.stream(
+                    seg, width=settings.width, height=settings.height))
+            else:
+                frames = source.stream(segment, width=settings.width,
+                                       height=settings.height)
             encode = stream_encode(
                 tools=self.tools,
-                frames=source.stream(segment, width=settings.width, height=settings.height),
+                frames=frames,
                 output=target, width=settings.width, height=settings.height, fps=fps,
                 settings=settings, cancel_token=self.cancel_token,
                 timeout=21600.0,
                 progress=lambda written, seg=segment: self._frame_progress(seg, written),
+                two_pass=request.two_pass,
+                pass_stats=work_dir / f"pass_{segment.index}",
             )
             if encode.cancelled:
                 _remove_quietly(target)
@@ -609,6 +626,9 @@ class RenderEngine:
             expected_duration=timeline.total_duration,
             expected_width=settings.width, expected_height=settings.height,
             expected_fps=fps, expect_audio=master_audio is not None,
+            expected_video_codec=stream_codec_name(settings.codec),
+            expected_audio_codec=(str(settings.audio_codec or "")
+                                  if master_audio is not None else ""),
             expect_subtitles=project.subtitles.duration if project.subtitles.enabled else 0.0,
             inherited=[_SceneIssueAdapter(item, "warning")
                        for item in _scene_warnings(project, canvas, self.project_dir)],

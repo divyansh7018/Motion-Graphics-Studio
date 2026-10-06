@@ -158,7 +158,8 @@ class RenderService:
 
     # -- planning --------------------------------------------------------
 
-    def plan(self, project: Any, *, overrides: Optional[dict] = None) -> RenderPlanSummary:
+    def plan(self, project: Any, *, overrides: Optional[dict] = None,
+             two_pass: bool = False) -> RenderPlanSummary:
         """Work out what a render would do, without rendering anything."""
         settings = project.format
         if overrides:
@@ -170,7 +171,8 @@ class RenderService:
         fps = max(1, int(settings.fps))
         segment_plan = plan_segments(timeline, fps=fps)
         engine = self.engine()
-        errors, warnings = engine.validate(project, duration=timeline.total_duration)
+        errors, warnings = engine.validate(project, duration=timeline.total_duration,
+                                           two_pass=two_pass)
         for issue in segment_plan.issues:
             (errors if issue.severity == "error" else warnings).append(issue)
 
@@ -196,10 +198,11 @@ class RenderService:
         summary.ready = not errors
         return summary
 
-    def validate(self, project: Any) -> tuple[list, list]:
+    def validate(self, project: Any, *, two_pass: bool = False) -> tuple[list, list]:
         """Blocking problems and warnings, without planning a whole render."""
         timeline = build_timeline(project.scenes)
-        return self.engine().validate(project, duration=timeline.total_duration)
+        return self.engine().validate(project, duration=timeline.total_duration,
+                                      two_pass=two_pass)
 
     # -- rendering -------------------------------------------------------
 

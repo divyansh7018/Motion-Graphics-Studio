@@ -11,7 +11,8 @@ Style: MGS,DejaVu Sans,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.00,0:00:01.90,MGS,,0,0,0,,This is the first scene of the Stage E\Nverification matrix.
-Dialogue: 0,0:00:02.00,0:00:04.20,MGS,,0,0,0,,The second scene carries an imported\Nimage.
-Dialogue: 0,0:00:04.30,0:00:06.80,MGS,,0,0,0,,The third scene shows a chart drawn from\Nreal data.
-Dialogue: 0,0:00:06.90,0:00:09.70,MGS,,0,0,0,,And the fourth closes on a single number.
+Dialogue: 0,0:00:00.00,0:00:00.80,MGS,,0,0,0,,Welcome.
+Dialogue: 0,0:00:00.80,0:00:02.35,MGS,,0,0,0,,This video was rendered end to end by the\NStage E pipeline.
+Dialogue: 0,0:00:02.35,0:00:05.05,MGS,,0,0,0,,Scenes can carry imported images, charts,\Nnumbers and text.
+Dialogue: 0,0:00:05.05,0:00:08.10,MGS,,0,0,0,,Charts are laid out responsively at\Nwhatever resolution you export.
+Dialogue: 0,0:00:08.10,0:00:11.50,MGS,,0,0,0,,That is the whole pipeline, from script to\Na verified MP4 file.

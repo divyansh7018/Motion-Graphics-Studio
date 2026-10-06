@@ -322,6 +322,7 @@ def check_ffprobe(context: CheckContext) -> CheckResult:
         details.append(f"Version: {discovery.ffprobe.version}")
 
     if discovery.has_ffprobe:
+        details.append("Verified media will be measured by FFprobe itself.")
         return CheckResult(
             check_id="media.ffprobe",
             title="FFprobe",
@@ -337,11 +338,20 @@ def check_ffprobe(context: CheckContext) -> CheckResult:
             technical="\n".join(discovery.errors) or None,
         )
     )
+    details.append(
+        "Without FFprobe, finished videos are measured by parsing 'ffmpeg -i' - a "
+        "limited probe.  The numbers are real but per-stream detail is missing, and "
+        "every quality report will say which one was used."
+    )
+    details.append(
+        "FFprobe is REQUIRED for final sign-off: a release must not claim FFprobe "
+        "verification unless FFprobe actually ran."
+    )
     return CheckResult(
         check_id="media.ffprobe",
         title="FFprobe",
         status=Status.MISSING,
-        summary="Not found",
+        summary="Not found - required for full verification",
         what_happened=friendly.what_happened,
         why=friendly.why,
         actions=friendly.actions,

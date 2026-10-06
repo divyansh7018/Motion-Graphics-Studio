@@ -17,14 +17,30 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from ..core.logging_setup import log_event
-from ..media.probe import MediaInfo, probe_media
+from ..media.probe import FFPROBE_FALLBACK_LABEL, MediaInfo, probe_media
 from .encode import probe_detect
 
-__all__ = ["QCIssue", "QCReport", "QCService", "PASS", "WARNING", "FAIL"]
+__all__ = [
+    "QCIssue",
+    "QCReport",
+    "QCService",
+    "PASS",
+    "WARNING",
+    "FAIL",
+    "NOT_AVAILABLE",
+]
 
 PASS = "PASS"
 WARNING = "WARNING"
 FAIL = "FAIL"
+#: A check that could not be run at all, because something it needs is missing.
+#: This is deliberately *not* PASS: an unrun check never counts as a clean one,
+#: and a report containing one can never come out as a bare PASS.
+NOT_AVAILABLE = "CHECK NOT AVAILABLE"
+
+#: The three states a single check can be in.  Nothing else is allowed, so a
+#: report can never say something ambiguous about one check.
+CHECK_STATES = (PASS, FAIL, NOT_AVAILABLE)
 
 #: How far the finished video may differ from the timeline before it counts as a
 #: real problem rather than container rounding.
@@ -60,6 +76,9 @@ class QCReport:
     measured: dict = field(default_factory=dict)
     #: The values the user asked for, kept next to the measurements.
     expected: dict = field(default_factory=dict)
+    #: One entry per check that was attempted: PASS, FAIL or CHECK NOT
+    #: AVAILABLE.  A check that never ran is absent, never silently PASS.
+    checks: dict = field(default_factory=dict)
     seconds: float = 0.0
 
     @property
@@ -78,6 +97,26 @@ class QCReport:
     def warnings(self) -> list:
         return [issue for issue in self.issues if issue.severity == WARNING]
 
+    @property
+    def unavailable(self) -> list:
+        """The checks that could not be run, with the issues explaining why."""
+        return [issue for issue in self.issues if issue.severity == NOT_AVAILABLE]
+
+    @property
+    def unavailable_checks(self) -> list:
+        return sorted(name for name, state in self.checks.items() if state == NOT_AVAILABLE)
+
+    @property
+    def complete(self) -> bool:
+        """Whether every attempted check actually ran."""
+        return not self.unavailable_checks
+
+    def set_check(self, name: str, state: str) -> None:
+        """Record the outcome of one check, and refuse an invented state."""
+        if state not in CHECK_STATES:
+            state = NOT_AVAILABLE
+        self.checks[name] = state
+
     def summary(self) -> str:
         counts: dict[str, int] = {}
         for issue in self.issues:
@@ -85,6 +124,8 @@ class QCReport:
         parts = [f"QC {self.verdict}"]
         if counts:
             parts.append(", ".join(f"{count} {severity}" for severity, count in sorted(counts.items())))
+        if self.unavailable_checks:
+            parts.append(f"{len(self.unavailable_checks)} check(s) not available")
         return " | ".join(parts)
 
     def describe(self) -> str:
@@ -101,6 +142,10 @@ class QCReport:
                 f"{measured.get('channels') or 0} ch, "
                 f"{(measured.get('size_bytes') or 0) // 1024} KiB"
             )
+            if measured.get("probe_source_label"):
+                lines.append(f"Inspected with: {measured['probe_source_label']}")
+        for name in sorted(self.checks):
+            lines.append(f"  {name}: {self.checks[name]}")
         for issue in self.issues:
             lines.append(f"  [{issue.severity.upper()}] {issue.message}")
             if issue.what_to_do:
@@ -114,6 +159,8 @@ class QCReport:
             "issues": [issue.to_dict() for issue in self.issues],
             "measured": self.measured,
             "expected": self.expected,
+            "checks": dict(self.checks),
+            "unavailable_checks": self.unavailable_checks,
             "seconds": round(self.seconds, 3),
         }
 
@@ -133,8 +180,14 @@ class QCService:
     def check(self, path: Path, *, expected_duration: float = 0.0,
               expected_width: int = 0, expected_height: int = 0,
               expected_fps: float = 0.0, expect_audio: bool = True,
-              expect_subtitles: float = 0.0, inherited: Sequence[Any] = ()) -> QCReport:
-        """Inspect one finished file and produce a verdict."""
+              expect_subtitles: float = 0.0, inherited: Sequence[Any] = (),
+              expected_video_codec: str = "", expected_audio_codec: str = "") -> QCReport:
+        """Inspect one finished file and produce a verdict.
+
+        Every check that runs records PASS, FAIL or CHECK NOT AVAILABLE, and the
+        verdict follows from those states rather than from an absence of
+        complaints.  A check that could not run is never a pass.
+        """
         import time
 
         started = time.monotonic()
@@ -145,6 +198,8 @@ class QCService:
             "width": int(expected_width or 0), "height": int(expected_height or 0),
             "fps": round(float(expected_fps or 0.0), 3),
             "audio": bool(expect_audio),
+            "video_codec": str(expected_video_codec or ""),
+            "audio_codec": str(expected_audio_codec or ""),
         }
 
         # 1. The file itself.
@@ -153,9 +208,11 @@ class QCService:
                 "FILE_MISSING", f"The output file was not found at {path}.",
                 "The render did not finish. Check the log for the reason, then render "
                 "again.", severity="error", area="file"))
+            report.set_check("file_exists", FAIL)
             report.verdict = FAIL
             report.seconds = time.monotonic() - started
             return report
+        report.set_check("file_exists", PASS)
 
         size = path.stat().st_size
         report.measured["size_bytes"] = size
@@ -164,18 +221,22 @@ class QCService:
                 "FILE_EMPTY", f"{path.name} is 0 bytes long.",
                 "The render failed while writing. Free some disk space and try again.",
                 severity="error", area="file"))
+            report.set_check("file_not_empty", FAIL)
             report.verdict = FAIL
             report.seconds = time.monotonic() - started
             return report
+        report.set_check("file_not_empty", PASS)
 
         if not self._readable(path):
             report.issues.append(QCIssue(
                 "FILE_UNREADABLE", f"{path.name} could not be opened for reading.",
                 "Another program may have the file open, or permissions may have "
                 "changed. Close it and try again.", severity="error", area="file"))
+            report.set_check("file_readable", FAIL)
             report.verdict = FAIL
             report.seconds = time.monotonic() - started
             return report
+        report.set_check("file_readable", PASS)
 
         # 2. What FFmpeg says is inside it.
         info = probe_media(path, self.tools)
@@ -185,9 +246,11 @@ class QCService:
                 f"FFmpeg could not read {path.name}: {info.error}",
                 "The file is probably incomplete. Render again, and if it happens "
                 "repeatedly check the disk.", severity="error", area="file"))
+            report.set_check("container_readable", FAIL)
             report.verdict = FAIL
             report.seconds = time.monotonic() - started
             return report
+        report.set_check("container_readable", PASS)
 
         report.measured.update({
             "width": info.width, "height": info.height, "fps": info.fps,
@@ -196,7 +259,22 @@ class QCService:
             "audio_codec": info.audio_codec, "sample_rate": info.sample_rate,
             "channels": info.channels, "bitrate_kbps": info.bitrate_kbps,
             "has_video": info.has_video, "has_audio": info.has_audio,
+            "probe_source": info.source,
+            "probe_source_label": info.source_label,
         })
+
+        # 2b. Which tool produced those numbers.  The facts are real either way,
+        # but "verified with FFprobe" may only be said when FFprobe ran.
+        if not info.used_ffprobe:
+            report.set_check("ffprobe_inspection", NOT_AVAILABLE)
+            report.issues.append(QCIssue(
+                "FFPROBE_NOT_USED",
+                f"The file was measured with the {FFPROBE_FALLBACK_LABEL}.",
+                "Install FFprobe alongside FFmpeg for full verification. The "
+                "measurements shown are real, but per-stream detail is limited "
+                "without it.", severity=NOT_AVAILABLE, area="file"))
+        else:
+            report.set_check("ffprobe_inspection", PASS)
 
         # 3. Truncation: a real container read reaches the end.
         if self._looks_truncated(info):
@@ -206,12 +284,18 @@ class QCService:
                 "complete video.",
                 "The render was interrupted. Render again; the previous take is "
                 "untouched.", severity="error", area="file"))
+            report.set_check("container_complete", FAIL)
+        else:
+            report.set_check("container_complete", PASS)
 
         # 4. The picture.
         if not info.has_video:
             report.issues.append(QCIssue(
                 "NO_VIDEO_STREAM", "The file contains no video stream.",
                 "Render again with a supported codec.", severity="error", area="video"))
+            report.set_check("video_stream", FAIL)
+        else:
+            report.set_check("video_stream", PASS)
         if expected_width and info.width and int(info.width) != int(expected_width):
             report.issues.append(QCIssue(
                 "WIDTH_MISMATCH",
@@ -219,6 +303,11 @@ class QCService:
                 f"{expected_width}.",
                 "Check the resolution in the export settings.", severity="error",
                 area="video"))
+            report.set_check("resolution", FAIL)
+        elif expected_height and info.height and int(info.height) != int(expected_height):
+            report.set_check("resolution", FAIL)
+        elif expected_width or expected_height:
+            report.set_check("resolution", PASS)
         if expected_height and info.height and int(info.height) != int(expected_height):
             report.issues.append(QCIssue(
                 "HEIGHT_MISMATCH",
@@ -234,6 +323,9 @@ class QCService:
                     f"{expected_fps} fps.",
                     "Check the frame rate in the export settings.", severity="error",
                     area="video"))
+                report.set_check("frame_rate", FAIL)
+            else:
+                report.set_check("frame_rate", PASS)
 
         # 5. Length against the timeline.
         duration = float(info.duration or 0.0)
@@ -246,6 +338,7 @@ class QCService:
                     f"{expected_duration:.2f}s long - the end is missing.",
                     "This usually means the render was cut short. Render again.",
                     severity="error", area="timeline"))
+                report.set_check("duration", FAIL)
             elif difference > max(DURATION_TOLERANCE, 1.0):
                 report.issues.append(QCIssue(
                     "VIDEO_TOO_LONG",
@@ -253,8 +346,43 @@ class QCService:
                     f"{expected_duration:.2f}s long.",
                     "Check the scene durations and the export settings.",
                     severity=WARNING, area="timeline"))
+                report.set_check("duration", FAIL)
+            else:
+                report.set_check("duration", PASS)
 
-        # 6. Audio.
+        # 6. Codecs: the file must contain what was asked for, not a substitute.
+        if expected_video_codec:
+            wanted = str(expected_video_codec).lower()
+            got = str(info.video_codec or "").lower()
+            if got and got != wanted:
+                report.issues.append(QCIssue(
+                    "VIDEO_CODEC_MISMATCH",
+                    f"The video stream is {got or 'unknown'} but the export asked "
+                    f"for {wanted}.",
+                    "Check the codec in the export settings, then render again.",
+                    severity="error", area="video"))
+                report.set_check("video_codec", FAIL)
+            elif got:
+                report.set_check("video_codec", PASS)
+            else:
+                report.set_check("video_codec", NOT_AVAILABLE)
+        if expected_audio_codec and expect_audio and info.has_audio:
+            wanted = str(expected_audio_codec).lower()
+            got = str(info.audio_codec or "").lower()
+            if got and got != wanted:
+                report.issues.append(QCIssue(
+                    "AUDIO_CODEC_MISMATCH",
+                    f"The audio stream is {got or 'unknown'} but the export asked "
+                    f"for {wanted}.",
+                    "Check the audio codec in the export settings, then render "
+                    "again.", severity="error", area="audio"))
+                report.set_check("audio_codec", FAIL)
+            elif got:
+                report.set_check("audio_codec", PASS)
+            else:
+                report.set_check("audio_codec", NOT_AVAILABLE)
+
+        # 7. Audio.
         if expect_audio:
             if not info.has_audio:
                 report.issues.append(QCIssue(
@@ -263,30 +391,33 @@ class QCService:
                     "music.",
                     "Check that narration has been generated, then render again.",
                     severity="error", area="audio"))
+                report.set_check("audio_stream", FAIL)
             else:
-                if duration and info.duration and abs(duration - float(info.duration)) > AV_SYNC_TOLERANCE:
-                    report.issues.append(QCIssue(
-                        "AV_LENGTH_MISMATCH",
-                        "The audio and video tracks are different lengths, so they "
-                        "will drift apart.",
-                        "Render again; if it repeats, shorten the longest audio track.",
-                        severity=WARNING, area="audio"))
+                report.set_check("audio_stream", PASS)
+                self._check_av_lengths(info, report)
 
-        # 7. Deep scans (they read the whole file).
+        # 8. Deep scans (they read the whole file).
         if self.deep_checks:
+            # A check that does not apply is simply absent.  Only a check that
+            # *should* have run but could not is recorded as not available -
+            # otherwise a silent video would be reported as under-verified.
             if info.has_audio:
-                report.issues.extend(self._audio_stats(path, duration))
+                report.issues.extend(self._audio_stats(path, duration, report))
+            elif expect_audio:
+                report.set_check("audio_levels", NOT_AVAILABLE)
             if info.has_video:
-                report.issues.extend(self._video_scan(path, duration))
+                report.issues.extend(self._video_scan(path, duration, report))
         else:
+            for name in ("audio_levels", "silence", "black_frames"):
+                report.set_check(name, NOT_AVAILABLE)
             report.issues.append(QCIssue(
                 "DEEP_CHECKS_SKIPPED",
                 "The silence, clipping and black-frame scans were skipped for this "
                 "check.",
                 "Run a full quality check to confirm the picture and audio.",
-                severity=WARNING, area="file"))
+                severity=NOT_AVAILABLE, area="file"))
 
-        # 8. Subtitles, when the project has them.
+        # 9. Subtitles, when the project has them.
         if expect_subtitles and expect_subtitles > 0:
             if duration and expect_subtitles - duration > 1.0:
                 report.issues.append(QCIssue(
@@ -295,8 +426,11 @@ class QCService:
                     f"{duration:.2f}s long.",
                     "Regenerate the captions from the narration before rendering.",
                     severity=WARNING, area="subtitles"))
+                report.set_check("subtitle_span", FAIL)
+            else:
+                report.set_check("subtitle_span", PASS)
 
-        # 9. Anything the scene validation already knew about.
+        # 10. Anything the scene validation already knew about.
         for item in inherited:
             code = str(getattr(item, "code", "") or "")
             message = str(getattr(item, "message", "") or "")
@@ -310,15 +444,50 @@ class QCService:
                 code or "SCENE_WARNING", f"From the scene check: {message}",
                 what_to_do, severity="error" if severity == "error" else WARNING,
                 area="scenes"))
+            report.set_check("scene_validation", FAIL)
 
-        report.verdict = self._verdict(report.issues)
+        report.verdict = self._verdict(report.issues, report.checks)
         report.seconds = time.monotonic() - started
         log_event("RENDER_QC_DONE", report.summary(), path=str(path),
                   duration=report.measured.get("duration"),
-                  verdict=report.verdict)
+                  verdict=report.verdict,
+                  probe=report.measured.get("probe_source"),
+                  unavailable=",".join(report.unavailable_checks))
         return report
 
     # -- individual checks ----------------------------------------------
+
+    def _check_av_lengths(self, info: MediaInfo, report: "QCReport") -> None:
+        """Compare the audio track's own length with the picture's.
+
+        The container reports one duration for the whole file, so comparing it
+        with itself can never detect a short audio track.  Each stream reports
+        its own duration, and that is the comparison that matters.
+        """
+        video_seconds = info.stream_duration("video")
+        audio_seconds = info.stream_duration("audio")
+        if video_seconds <= 0 or audio_seconds <= 0:
+            report.set_check("av_sync", NOT_AVAILABLE)
+            report.issues.append(QCIssue(
+                "AV_LENGTH_NOT_MEASURED",
+                "FFmpeg did not report separate lengths for the audio and video "
+                "tracks, so their alignment could not be verified.",
+                "Install FFprobe for per-stream measurements, or check the audio by "
+                "playing the file.", severity=NOT_AVAILABLE, area="audio"))
+            return
+        report.measured["video_stream_duration"] = round(video_seconds, 3)
+        report.measured["audio_stream_duration"] = round(audio_seconds, 3)
+        drift = abs(video_seconds - audio_seconds)
+        if drift > AV_SYNC_TOLERANCE:
+            report.issues.append(QCIssue(
+                "AV_LENGTH_MISMATCH",
+                f"The audio track is {audio_seconds:.2f}s but the picture is "
+                f"{video_seconds:.2f}s long, so they drift {drift:.2f}s apart.",
+                "Render again; if it repeats, shorten the longest audio track.",
+                severity=WARNING, area="audio"))
+            report.set_check("av_sync", FAIL)
+        else:
+            report.set_check("av_sync", PASS)
 
     def _readable(self, path: Path) -> bool:
         try:
@@ -330,12 +499,16 @@ class QCService:
     def _looks_truncated(self, info: MediaInfo) -> bool:
         if not info.duration or info.duration <= 0:
             return True
-        # An MP4/MOV without a moov atom, or a stream whose last packet is
-        # missing, reports no duration at all - covered above.  Here we also
-        # treat an absurdly low bitrate for the claimed resolution as suspicious.
+        # An MP4/MOV without a moov atom reports no duration at all - covered
+        # above.  When FFprobe is available it also gives every stream its own
+        # duration, so a container that claims a length while its video stream
+        # reports none is missing its tail.  Without FFprobe that signal does
+        # not exist, and guessing would produce false alarms.
+        if info.used_ffprobe and info.has_video and info.stream_duration("video") <= 0:
+            return True
         return False
 
-    def _audio_stats(self, path: Path, duration: float) -> list:
+    def _audio_stats(self, path: Path, duration: float, report: "QCReport") -> list:
         """Measure the real peak and RMS level, and find real silence."""
         issues: list[QCIssue] = []
         result = self.tools.run(
@@ -348,13 +521,17 @@ class QCService:
         rms = _decibels(text, r"RMS level dB:\s*(-?[0-9.]+|-?inf|-?nan)")
 
         if peak is None and rms is None:
+            report.set_check("audio_levels", NOT_AVAILABLE)
             issues.append(QCIssue(
                 "AUDIO_STATS_UNAVAILABLE",
                 "The audio level could not be measured.",
                 "Open the video and listen to it, or check the log.",
-                severity=WARNING, area="audio"))
+                severity=NOT_AVAILABLE, area="audio"))
             return issues
 
+        report.measured["audio_peak_db"] = peak
+        report.measured["audio_rms_db"] = rms
+        report.set_check("audio_levels", PASS)
         if peak is not None:
             if peak >= CLIPPING_THRESHOLD_DB:
                 issues.append(QCIssue(
@@ -371,6 +548,7 @@ class QCService:
                     severity=WARNING, area="audio"))
 
         silence = self._silence_ranges(path, duration)
+        report.set_check("silence", PASS)
         if silence:
             total = sum(item["duration"] for item in silence)
             longest = max(item["duration"] for item in silence)
@@ -404,12 +582,24 @@ class QCService:
                 start = None
         return ranges
 
-    def _video_scan(self, path: Path, duration: float) -> list:
+    def _video_scan(self, path: Path, duration: float, report: "QCReport") -> list:
         """Real black-frame detection, using FFmpeg's own analysis."""
         issues: list[QCIssue] = []
         detected = probe_detect(tools=self.tools, source=path, duration=duration)
+        if not detected.get("ok", False):
+            # The scan itself did not run, which is not the same as finding
+            # nothing: saying PASS here would be a false clean bill of health.
+            report.set_check("black_frames", NOT_AVAILABLE)
+            issues.append(QCIssue(
+                "BLACK_FRAME_SCAN_UNAVAILABLE",
+                "The black-frame scan could not be run on this file.",
+                "Watch the finished video for black sections, or check the log for "
+                "the FFmpeg error.", severity=NOT_AVAILABLE, area="video"))
+            return issues
         ranges = detected.get("ranges") or []
+        report.measured["black_seconds"] = float(detected.get("black_seconds") or 0.0)
         if not ranges:
+            report.set_check("black_frames", PASS)
             return issues
         total = float(detected.get("black_seconds") or 0.0)
         # A black frame at a scene boundary is a transition; a long black run in
@@ -423,13 +613,25 @@ class QCService:
                 f"(starting at {float(first['start']):.1f}s; {total:.1f}s in total).",
                 "Check the background of the scene at that point, and any image "
                 "that failed to load.", severity=WARNING, area="video"))
+            report.set_check("black_frames", FAIL)
+        else:
+            report.set_check("black_frames", PASS)
         return issues
 
     @staticmethod
-    def _verdict(issues: Sequence[QCIssue]) -> str:
+    def _verdict(issues: Sequence[QCIssue],
+                 checks: Optional[dict] = None) -> str:
+        """PASS, WARNING or FAIL - and never an ambiguous fourth thing.
+
+        A check that could not be run counts as a warning, not as a pass: the
+        verdict says "we could not confirm this file completely", which is the
+        truth, rather than claiming a clean result that was never measured.
+        """
         if any(issue.severity == "error" for issue in issues):
             return FAIL
-        if any(issue.severity == WARNING for issue in issues):
+        if any(issue.severity in (WARNING, NOT_AVAILABLE) for issue in issues):
+            return WARNING
+        if checks and any(state == NOT_AVAILABLE for state in checks.values()):
             return WARNING
         return PASS
 

@@ -4,10 +4,15 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 1163 tests passing** (Stage A 153 + Stage B 208 + Stage C 230 +
-Stage D 298 + Stage E 268, plus shared fixtures). See `STAGE_A_REPORT.md`,
-`STAGE_B_REPORT.md`, `STAGE_C_REPORT.md`, `STAGE_D_REPORT.md` and
-`STAGE_E_REPORT.md` for the exact runs.
+**Current status: 1181 passed, 2 skipped, 0 failed** (Stage A 153 + Stage B 208 +
+Stage C 230 + Stage D 298 + Stage E 268 + Stage E hardening 20 = 1177, plus 4
+shared-fixture tests). See `STAGE_A_REPORT.md`, `STAGE_B_REPORT.md`,
+`STAGE_C_REPORT.md`, `STAGE_D_REPORT.md` and `STAGE_E_REPORT.md` for the exact
+runs.
+
+Both skips are environmental — "this FFmpeg has every codec, so none can be
+shown missing" and "FFmpeg is installed on this machine" — and each scenario is
+covered by another test that fabricates the missing capability.
 
 Stage E tests render real video with a real FFmpeg and read the results back
 through the probe, so they are slower than the earlier stages but check the
@@ -62,10 +67,14 @@ python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine f
 # the sixteen Stage D manual scenarios, headless, rendering real preview pixels
 python scripts/stage_d_manual_matrix.py --data-root /tmp/mgs_stage_d
 
-# the twenty-five Stage E scenarios: real renders, QC, cancellation, failures,
+# the thirty-five Stage E scenarios: real renders, QC, cancellation, failures,
 # five resolutions and four quality presets.  Add --narration kokoro to refuse
 # the synthetic-audio fallback and require real Kokoro.
 python scripts/stage_e_manual_matrix.py --data-root /tmp/mgs_stage_e
+
+# memory / performance profiling: real RSS at startup, GUI, load, preview,
+# long-form planning and during a real render
+python scripts/stage_e_profile.py --data-root /tmp/mgs_profile
 
 # the Stage E end-to-end deliverable: StageE_Test_Video1.mp4 then _Video2.mp4,
 # both probed and quality-checked, with Video1 proven untouched

@@ -220,6 +220,24 @@ breaking it produced a bug that was hard to see:
 * **Heavy work goes in a job.** Capability detection, planning, mixing and
   rendering all start subprocesses. `test_gui_stage_e.py` asserts they are
   submitted as jobs, so a change that runs one inline will fail a test.
+* **Say which tool measured it.** `MediaInfo.ok` and `MediaInfo.used_ffprobe`
+  are different questions. A QC report prints `Inspected with: FFprobe` or
+  `FFprobe fallback / limited probe (ffmpeg -i)`, and records
+  `ffprobe_inspection: CHECK NOT AVAILABLE` when FFprobe did not run. Never
+  write "verified with FFprobe" from a parsed `ffmpeg -i`.
+* **An unrun check is not a pass.** `QCReport.checks` holds PASS, FAIL or
+  `CHECK NOT AVAILABLE` and nothing else, and `_verdict()` refuses to return
+  PASS while any check is unavailable. A check that merely does not apply is
+  *absent* - do not invent an entry for it, or a silent video will look
+  under-verified.
+* **A control that does nothing is a bug.** If the UI exposes an option, it must
+  reach the encoder or be refused with a reason. Two-pass is verified by reading
+  `-pass 1` / `-pass 2` out of the real FFmpeg command, not by looking at the
+  arguments a function builds.
+* **Compare like with like.** A container has one duration; each stream has its
+  own. `info.stream_duration("video")` versus `info.stream_duration("audio")` is
+  the A/V sync check - comparing the container duration with itself always
+  returns 0 and silently passes.
 
 FFmpeg gotchas worth knowing before you debug an encode:
 
@@ -233,6 +251,25 @@ FFmpeg gotchas worth knowing before you debug an encode:
   timeline, and the runaway process survived its parent being killed.
 * A flat single-colour frame encodes *smaller* at CRF 16 than at CRF 36, so a
   test asserting "higher quality means a bigger file" needs real content.
+* `log_event(event, message, **fields)` takes the message **positionally**.
+  Passing `message=` as well raises `TypeError` at the moment the event is
+  logged, which is usually inside an error handler - a render with no audio
+  tracks failed for exactly this reason.
+* Two-pass writes a statistics file per pass. Give every segment its own
+  `-passlogfile` (`pass_<index>`) or concurrent segments overwrite each other's
+  stats, and delete the `*-0.log` files afterwards.
+
+## 8b. Profiling
+
+`scripts/stage_e_profile.py` measures resident set at startup, GUI construction,
+project create/load, preview, long-form planning and during a real render:
+
+```
+python scripts/stage_e_profile.py --data-root /tmp/mgs_profile --scenes 50
+```
+
+Use it before claiming anything about memory. "Controlled by design" is not a
+measurement, and the profiler is what found the no-audio crash in §8.
 
 ## 9. Release checklist (Stage A)
 

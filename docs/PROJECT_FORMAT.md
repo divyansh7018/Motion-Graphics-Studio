@@ -407,6 +407,17 @@ the picture whatever the frame rate or resolution.
 translated automatically, and no word-level timing is invented: splitting a
 caption divides its text at a word boundary and marks the result `manual`.
 
+### 3.12 Codec names and two-pass data are not project state
+
+`app/project/presets.py` gained three additions during the Stage E hardening
+pass: `CODEC_STREAM_NAMES`, `TWO_PASS_ENCODERS` and `stream_codec_name()`. They
+translate between what the project stores (`codec: "h264_cpu"`) and what a
+finished file reports (`h264`), and list the encoders that accept `-pass`.
+
+None of them are written into `project.json`. They are code-level tables, so
+**`PROJECT_SCHEMA_VERSION` stays at 3** — a schema bump would force migrations
+on every existing project for no change in what is stored.
+
 ## 4. Versioning and migration
 
 | Situation | Behaviour |
