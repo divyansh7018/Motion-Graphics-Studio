@@ -15,7 +15,7 @@ which flips the provenance to ``"manual"``.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
@@ -498,3 +498,178 @@ def write_subtitle_file(path: Any, content: str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return target
+
+
+# --------------------------------------------------------------------------
+# The service object the GUI, CLI and render engine all go through
+# --------------------------------------------------------------------------
+
+@dataclass
+class SubtitlePlan:
+    """What generating captions produced, and what was wrong with it."""
+
+    cues: list = field(default_factory=list)
+    issues: list = field(default_factory=list)
+    timing_source: str = "narration"
+
+    @property
+    def ok(self) -> bool:
+        return not [issue for issue in self.issues if issue.severity == "error"]
+
+    @property
+    def errors(self) -> list:
+        return [issue for issue in self.issues if issue.severity == "error"]
+
+    @property
+    def warnings(self) -> list:
+        return [issue for issue in self.issues if issue.severity != "error"]
+
+    def summary(self) -> str:
+        if not self.cues:
+            return "No captions were generated."
+        span = f"{self.cues[0].start:.2f}s to {self.cues[-1].end:.2f}s"
+        return f"{len(self.cues)} caption(s) from {span}"
+
+    def to_dict(self) -> dict:
+        return {"count": len(self.cues), "timing_source": self.timing_source,
+                "issues": [issue.to_dict() for issue in self.issues],
+                "cues": [cue.to_dict() for cue in self.cues]}
+
+
+class SubtitleService:
+    """Captions for a project: generate, edit, check, export.
+
+    The module-level functions stay - they are the tested primitives - but the
+    GUI and CLI talk to this object so there is one place that knows how a
+    project's subtitle settings, its timeline and its output files fit together.
+
+    Nothing here invents data.  Timings come from measured narration files; a
+    scene whose length was guessed is reported rather than silently captioned,
+    and word-level timing is never fabricated (directive sections 14-17).
+    """
+
+    def __init__(self, *, project_dir: Optional[Path] = None, tools: Any = None) -> None:
+        self.project_dir = Path(project_dir) if project_dir else None
+        self.tools = tools
+
+    # -- generating -------------------------------------------------------
+
+    def generate(self, project: Any, timeline: Any = None, *,
+                 store: bool = True, **options: Any) -> SubtitlePlan:
+        """Build captions from the narration and (by default) keep them."""
+        if timeline is None:
+            from ..scene.timing import build_timeline
+
+            timeline = build_timeline(getattr(project, "scenes", None) or [])
+        cues, issues = generate_cues(project, timeline, **options)
+        spec = getattr(project, "subtitles", None)
+        if spec is not None and store:
+            spec.cues = cues
+            spec.timing_source = "narration" if cues else "none"
+        source = "narration" if cues else "none"
+        if spec is not None and str(getattr(spec, "timing_source", "")) == "manual":
+            source = "manual"
+        return SubtitlePlan(cues=cues, issues=issues, timing_source=source)
+
+    def regenerate(self, project: Any, timeline: Any = None, **options: Any) -> SubtitlePlan:
+        """Throw the current captions away and rebuild them from the narration."""
+        spec = getattr(project, "subtitles", None)
+        if spec is not None:
+            spec.cues = []
+            spec.timing_source = "none"
+        return self.generate(project, timeline, store=True, **options)
+
+    # -- checking ---------------------------------------------------------
+
+    def validate(self, project: Any, *, canvas: Any = None,
+                 safe_area: Any = None) -> list:
+        """Check the captions against the frame, without changing them."""
+        spec = getattr(project, "subtitles", None)
+        if spec is None:
+            return []
+        if canvas is None:
+            from ..scene.canvas import Canvas
+
+            fmt = getattr(project, "format", None)
+            canvas = Canvas(int(getattr(fmt, "width", 0) or 1920),
+                            int(getattr(fmt, "height", 0) or 1080),
+                            fps=int(getattr(fmt, "fps", 0) or 30))
+        style = _subtitle_style_for(project)
+        return validate_cues(getattr(spec, "cues", None) or [], canvas=canvas,
+                             style=style, safe_area=safe_area, spec=spec)
+
+    # -- editing ----------------------------------------------------------
+
+    def edit(self, project: Any, cue_id: str, **changes: Any) -> bool:
+        return edit_cue(_spec(project), cue_id, **changes)
+
+    def split(self, project: Any, cue_id: str, at_seconds: float):
+        return split_cue(_spec(project), cue_id, at_seconds)
+
+    def merge(self, project: Any, first_id: str, second_id: str) -> bool:
+        return merge_cues(_spec(project), first_id, second_id)
+
+    def delete(self, project: Any, cue_id: str) -> bool:
+        return delete_cue(_spec(project), cue_id)
+
+    def cues(self, project: Any) -> list:
+        return list(getattr(_spec(project), "cues", None) or [])
+
+    # -- exporting --------------------------------------------------------
+
+    def export(self, project: Any, output_dir: Any, *, stem: str = "subtitles",
+               formats: Sequence[str] = ("srt", "vtt")) -> dict:
+        """Write the caption files.  Returns the paths, keyed by format.
+
+        An empty cue list writes nothing: a 0-byte .srt looks like a success
+        and is not one.
+        """
+        cues = self.cues(project)
+        folder = Path(output_dir)
+        written: dict[str, str] = {}
+        if not cues:
+            return written
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in formats:
+            target = folder / f"{stem}.{name}"
+            if name == "srt":
+                write_subtitle_file(target, to_srt(cues))
+            elif name == "vtt":
+                write_subtitle_file(target, to_vtt(cues))
+            elif name == "ass":
+                written[name] = str(self.export_ass(project, target))
+                continue
+            else:
+                continue
+            written[name] = str(target)
+        return written
+
+    def export_ass(self, project: Any, target: Any) -> Path:
+        """The styled ASS file used for burning captions into the picture."""
+        fmt = getattr(project, "format", None)
+        content = to_ass(self.cues(project), _subtitle_style_for(project),
+                         width=int(getattr(fmt, "width", 0) or 1920),
+                         height=int(getattr(fmt, "height", 0) or 1080),
+                         spec=getattr(project, "subtitles", None))
+        return write_subtitle_file(Path(target), content)
+
+    def ass_content(self, project: Any) -> str:
+        """The ASS text, for the render engine to pipe straight into FFmpeg."""
+        fmt = getattr(project, "format", None)
+        return to_ass(self.cues(project), _subtitle_style_for(project),
+                      width=int(getattr(fmt, "width", 0) or 1920),
+                      height=int(getattr(fmt, "height", 0) or 1080),
+                      spec=getattr(project, "subtitles", None))
+
+
+def _spec(project: Any) -> Any:
+    spec = getattr(project, "subtitles", None)
+    if spec is None:
+        raise ValueError("This project has no subtitle settings.")
+    return spec
+
+
+def _subtitle_style_for(project: Any) -> Any:
+    """Caption styling lives on the theme; layout lives on the subtitle spec."""
+    theme = getattr(project, "theme", None)
+    return getattr(theme, "subtitle_style", None)

@@ -57,7 +57,11 @@ from .views.welcome import WelcomePage
 from ..core.errors import AppError
 from .views.project_browser import ProjectBrowserPage
 from .views.project_settings import ProjectSettingsPage
+from .views.audio_view import AudioPage
 from .views.narration_view import NarrationPage
+from .views.render_view import RenderPage
+from .views.subtitles_view import SubtitlesPage
+from .views.timeline_view import TimelinePage
 from .views.project_view import ProjectPage
 from .views.script_view import ScriptPage
 from .views.storyboard_view import StoryboardPage
@@ -74,18 +78,19 @@ PAGES: tuple[tuple[str, str, str, str], ...] = (
     ("script", "Script", "Create", "ready"),
     ("narration", "Narration", "Create", "ready"),
     ("storyboard", "Storyboard", "Create", "ready"),
+    ("audio", "Audio", "Create", "ready"),
+    ("subtitles", "Subtitles", "Create", "ready"),
+    ("timeline", "Timeline", "Produce", "ready"),
+    ("render", "Render", "Produce", "ready"),
     ("project_settings", "Project settings", "Create", "ready"),
     ("projects", "Projects", "Create", "ready"),
     ("system_check", "System check", "Start", "ready"),
 )
 
 FUTURE_PAGES: tuple[tuple[str, str, str], ...] = (
-    # (label, section, stage note)
+    # (label, section, stage note)  - only pages that genuinely are not built.
     ("Visuals", "Create", "Stage H - images"),
-    ("Music", "Create", "Stage E - audio"),
-    ("Timeline", "Advanced", "Stage D - timeline"),
-    ("Render", "Advanced", "Stage F - renderer"),
-    ("Video library", "Advanced", "Stage G - output"),
+    ("Video library", "Produce", "Stage G - output"),
 )
 
 SETTINGS_PAGES: tuple[tuple[str, str, str, str], ...] = (
@@ -234,6 +239,10 @@ class MainWindow(QMainWindow):
         self.script_page = ScriptPage(self.context)
         self.narration_page = NarrationPage(self.context)
         self.storyboard_page = StoryboardPage(self.context)
+        self.audio_page = AudioPage(self.context)
+        self.subtitles_page = SubtitlesPage(self.context)
+        self.timeline_page = TimelinePage(self.context)
+        self.render_page = RenderPage(self.context)
         self.project_settings_page = ProjectSettingsPage(self.context)
         self.projects_page = ProjectBrowserPage(self.context)
         self.system_check_page = SystemCheckPage(self.context)
@@ -247,6 +256,10 @@ class MainWindow(QMainWindow):
             "script": self.script_page,
             "narration": self.narration_page,
             "storyboard": self.storyboard_page,
+            "audio": self.audio_page,
+            "subtitles": self.subtitles_page,
+            "timeline": self.timeline_page,
+            "render": self.render_page,
             "project_settings": self.project_settings_page,
             "projects": self.projects_page,
             "system_check": self.system_check_page,
@@ -504,6 +517,13 @@ class MainWindow(QMainWindow):
         page.open_settings_page.connect(lambda: self.show_page("project_settings"))
         page.project_changed.connect(self._on_project_edited)
 
+        # The Stage E pages edit the project directly, so each one reports the
+        # change and the window decides what "dirty" means.
+        for page in (self.audio_page, self.subtitles_page, self.timeline_page,
+                     self.render_page):
+            page.project_changed.connect(self._on_project_edited)
+        self.render_page.render_completed.connect(self._on_render_completed)
+
         settings_page = self.project_settings_page
         settings_page.save_requested.connect(lambda: self._save_project_settings())
         settings_page.discard_requested.connect(lambda: self._discard_project_settings())
@@ -627,13 +647,26 @@ class MainWindow(QMainWindow):
     def _on_project_opened(self, project) -> None:
         self.project_page.refresh()
         self.project_settings_page.refresh()
+        self.audio_page.refresh()
+        self.subtitles_page.refresh()
+        self.timeline_page.refresh()
+        self.render_page.refresh()
         self.welcome_page.refresh()
         self._refresh_recent_menu()
         self._update_title()
         self._update_project_actions()
 
+    def _on_render_completed(self, path: str) -> None:
+        """A render finished: say so, and offer the file."""
+        self._show_status_message(f"Render finished: {path}", 10000)
+        self.context.notify(f"Render finished: {path}", 10000)
+
     def _on_project_closed(self) -> None:
         self.project_page.refresh()
+        self.audio_page.refresh()
+        self.subtitles_page.refresh()
+        self.timeline_page.refresh()
+        self.render_page.refresh()
         self.project_settings_page.refresh()
         self.welcome_page.refresh()
         self._refresh_recent_menu()
@@ -788,6 +821,36 @@ class MainWindow(QMainWindow):
 
         if result.key == JobKeys.SCENE_PREVIEW:
             self.storyboard_page.on_preview_finished(result)
+
+        # -- Stage E jobs --------------------------------------------------
+        if result.key == JobKeys.AUDIO_VALIDATE:
+            self.audio_page.on_validate_finished(result)
+
+        if result.key == JobKeys.AUDIO_MIX:
+            self.audio_page.on_mix_finished(result)
+
+        if result.key == JobKeys.SUBTITLE_BUILD:
+            self.subtitles_page.on_build_finished(result)
+
+        if result.key == JobKeys.SUBTITLE_EXPORT:
+            self.subtitles_page.on_export_finished(result)
+
+        if result.key == JobKeys.TIMELINE_CHECK:
+            self.timeline_page.on_check_finished(result)
+
+        if result.key == JobKeys.RENDER_CAPABILITIES:
+            self.render_page.on_capabilities_finished(result)
+
+        if result.key == JobKeys.RENDER_PLAN:
+            self.render_page.on_plan_finished(result)
+
+        if result.key == JobKeys.QC_RUN:
+            self.render_page.on_qc_finished(result)
+
+        if result.key == JobKeys.RENDER_FINAL:
+            self.render_page.on_render_finished(result)
+            # A finished render changes what the timeline and audio pages show.
+            self.timeline_page.refresh()
 
         if result.key == "diagnostics.smoke_test":
             self._show_smoke_result(result)

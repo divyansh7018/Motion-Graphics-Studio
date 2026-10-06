@@ -33,7 +33,9 @@ from ..core.logging_setup import log_event, log_exception
 from ..scene.canvas import Canvas
 from ..scene.storyboard import build_context
 from ..scene.timing import build_timeline
+from ..scene.service import TimelineService
 from ..scene.validate import validate_project_scenes
+from ..subtitles.service import SubtitleService
 from ..subtitles.service import generate_cues, to_ass, to_srt, to_vtt, write_subtitle_file
 from .capabilities import (
     EncoderCapabilities,
@@ -212,6 +214,10 @@ class RenderEngine:
         self.progress = RenderProgress()
         self.audio_service = AudioService(tools, project_dir=self.project_dir)
         self.output_service = OutputService(self.project_dir)
+        # Stage E service objects, shared with the GUI and CLI so every entry
+        # point judges the project the same way.
+        self.timeline_service = TimelineService(project_dir=self.project_dir, tools=tools)
+        self.subtitle_service = SubtitleService(project_dir=self.project_dir, tools=tools)
 
     # -- progress --------------------------------------------------------
 
@@ -265,6 +271,14 @@ class RenderEngine:
             warnings.append(_SceneIssueAdapter(warning, "warning"))
 
         timeline = build_timeline(project.scenes)
+
+        # The timeline is checked by the same service the GUI and CLI use, so a
+        # problem found on the Timeline page is exactly the problem that blocks
+        # a render - there is no second opinion.
+        timeline_report = self.timeline_service.validate(project, timeline)
+        for issue in timeline_report.issues:
+            (errors if issue.is_error else warnings).append(issue)
+
         audio_validation = self.audio_service.validate(project, timeline)
         for error in audio_validation.errors:
             errors.append(error)

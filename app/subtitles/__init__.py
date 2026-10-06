@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from .service import (
     SubtitleIssue,
+    SubtitlePlan,
+    SubtitleService,
     delete_cue,
     edit_cue,
     generate_cues,
@@ -26,6 +28,8 @@ from .service import (
 
 __all__ = [
     "SubtitleIssue",
+    "SubtitlePlan",
+    "SubtitleService",
     "delete_cue",
     "edit_cue",
     "generate_cues",

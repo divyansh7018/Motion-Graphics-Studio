@@ -35,11 +35,16 @@ class JobKeys:
     SCENE_PREVIEW = "scene.preview"
     STORYBOARD_RENDER = "storyboard.render"
     AUDIO_MIX = "audio.mix"
+    AUDIO_VALIDATE = "audio.validate"
     SUBTITLE_BUILD = "subtitles.build"
+    SUBTITLE_EXPORT = "subtitles.export"
+    TIMELINE_CHECK = "timeline.check"
 
     # -- Stage F/G (render, QC) -------------------------------------------
     RENDER_PREVIEW = "render.preview"
     RENDER_FINAL = "render.final"
+    RENDER_CAPABILITIES = "render.capabilities"
+    RENDER_PLAN = "render.plan"
     QC_RUN = "qc.run"
     OUTPUT_VALIDATE = "output.validate"
 

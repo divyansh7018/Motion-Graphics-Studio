@@ -32,8 +32,18 @@ __all__ = [
     "render_spec",
     "audio_mix_body",
     "audio_mix_spec",
+    "audio_validate_body",
+    "audio_validate_spec",
     "subtitle_build_body",
     "subtitle_build_spec",
+    "subtitle_export_body",
+    "subtitle_export_spec",
+    "timeline_check_body",
+    "timeline_check_spec",
+    "capabilities_body",
+    "capabilities_spec",
+    "render_plan_body",
+    "render_plan_spec",
     "qc_body",
     "qc_spec",
     "ffmpeg_cancel_token_for",
@@ -275,6 +285,205 @@ def qc_spec(context_payload: dict, **options: Any) -> JobSpec:
         title="Quality check",
         body=qc_body,
         description="Checking the finished video.",
+        allow_parallel=False,
+        payload=dict(context_payload, **options),
+    )
+
+
+# --------------------------------------------------------------------------
+# Timeline and audio checks (Stage E services, off the Qt thread)
+# --------------------------------------------------------------------------
+
+def timeline_check_body(context: JobContext) -> dict:
+    """Build and validate the timeline - the same service the CLI uses."""
+    from ..scene.service import TimelineService
+
+    project = context.get("project")
+    if project is None:
+        raise ValueError("The timeline check needs an open project.")
+    context.raise_if_cancelled()
+    reporter = context.progress
+    if getattr(reporter.progress, "total", 0) != 1.0:
+        reporter.start(total=1.0, message="Building the timeline", unit="scene")
+    service = TimelineService(project_dir=context.get("project_dir") or None,
+                              tools=_tools(context))
+    report = service.check(project)
+    reporter.update(current=1.0, message=report.summary())
+    return report.to_dict()
+
+
+def timeline_check_spec(context_payload: dict, **options: Any) -> JobSpec:
+    return JobSpec(
+        key=JobKeys.TIMELINE_CHECK,
+        title="Check timeline",
+        body=timeline_check_body,
+        description="Checking the scene timings.",
+        allow_parallel=False,
+        payload=dict(context_payload, **options),
+    )
+
+
+def audio_validate_body(context: JobContext) -> dict:
+    """Check every audio track really exists and fits the timeline."""
+    project = context.get("project")
+    project_dir = context.get("project_dir")
+    if project is None or project_dir is None:
+        raise ValueError("The audio check needs a project and a project folder.")
+
+    context.raise_if_cancelled()
+    reporter = context.progress
+    if getattr(reporter.progress, "total", 0) != 1.0:
+        reporter.start(total=1.0, message="Checking the audio tracks", unit="track")
+
+    service = AudioService(_tools(context), project_dir=Path(project_dir))
+    timeline = build_timeline(project.scenes)
+    validation = service.validate(project, timeline)
+    reporter.update(current=1.0, message="Audio checked")
+    return {
+        "ok": validation.ok,
+        "errors": [issue.to_dict() for issue in validation.errors],
+        "warnings": [issue.to_dict() for issue in validation.warnings],
+        "placements": [
+            {"scene_id": item.scene_id, "scene_name": item.scene_name,
+             "path": str(item.path), "start": round(item.start, 3),
+             "duration": round(item.duration, 3), "end": round(item.end, 3)}
+            for item in validation.placements
+        ],
+    }
+
+
+def audio_validate_spec(context_payload: dict, **options: Any) -> JobSpec:
+    return JobSpec(
+        key=JobKeys.AUDIO_VALIDATE,
+        title="Check audio",
+        body=audio_validate_body,
+        description="Checking the audio tracks.",
+        allow_parallel=False,
+        payload=dict(context_payload, **options),
+    )
+
+
+def subtitle_export_body(context: JobContext) -> dict:
+    """Write the caption side-car files next to the project."""
+    from ..subtitles.service import SubtitleService
+
+    project = context.get("project")
+    output_dir = context.get("output_dir")
+    if project is None or output_dir is None:
+        raise ValueError("The subtitle export needs a project and an output folder.")
+
+    context.raise_if_cancelled()
+    reporter = context.progress
+    if getattr(reporter.progress, "total", 0) != 1.0:
+        reporter.start(total=1.0, message="Writing the caption files", unit="file")
+
+    service = SubtitleService(project_dir=context.get("project_dir") or None)
+    written = service.export(project, Path(output_dir),
+                             stem=context.get("stem") or "subtitles",
+                             formats=tuple(context.get("formats") or ("srt", "vtt")))
+    issues = service.validate(project)
+    reporter.update(current=1.0, message=f"Wrote {len(written)} caption file(s)")
+    return {"files": written, "count": len(service.cues(project)),
+            "issues": [issue.to_dict() for issue in issues]}
+
+
+def subtitle_export_spec(context_payload: dict, **options: Any) -> JobSpec:
+    return JobSpec(
+        key=JobKeys.SUBTITLE_EXPORT,
+        title="Export subtitles",
+        body=subtitle_export_body,
+        description="Writing the caption files.",
+        allow_parallel=False,
+        payload=dict(context_payload, **options),
+    )
+
+
+def capabilities_body(context: JobContext) -> dict:
+    """Detect what the local FFmpeg can actually encode.
+
+    Run as a job because it starts a subprocess: the Render page must never wait
+    for FFmpeg on the Qt thread (directive section 32).
+    """
+    from .service import RenderService
+
+    project = context.get("project")
+    project_dir = context.get("project_dir")
+    if project is None or project_dir is None:
+        raise ValueError("The capability check needs a project and a project folder.")
+
+    context.raise_if_cancelled()
+    reporter = context.progress
+    if getattr(reporter.progress, "total", 0) != 1.0:
+        reporter.start(total=1.0, message="Checking FFmpeg", unit="codec")
+    service = RenderService(_tools(context), project_dir=Path(project_dir),
+                            paths=context.paths)
+    options = service.export_options(project)
+    reporter.update(current=1.0, message="FFmpeg checked")
+    # A plain dict, like every other job result, so the UI never has to know
+    # which module the object came from.
+    return options.to_dict()
+
+
+def capabilities_spec(context_payload: dict, **options: Any) -> JobSpec:
+    return JobSpec(
+        key=JobKeys.RENDER_CAPABILITIES,
+        title="Check FFmpeg",
+        body=capabilities_body,
+        description="Checking which encoders FFmpeg has.",
+        allow_parallel=False,
+        payload=dict(context_payload, **options),
+    )
+
+
+def render_plan_body(context: JobContext) -> dict:
+    """Work out what a render would do, without drawing a frame.
+
+    The UI shows this while the Render button is still enabled, so the length,
+    the file name and the estimates are real before the user commits to a long
+    encode (directive sections 30-31).  It runs as a job because planning reads
+    the encoder list from FFmpeg.
+    """
+    project = context.get("project")
+    project_dir = context.get("project_dir")
+    if project is None or project_dir is None:
+        raise ValueError("The render plan needs a project and a project folder.")
+
+    context.raise_if_cancelled()
+    reporter = context.progress
+    if getattr(reporter.progress, "total", 0) != 1.0:
+        reporter.start(total=1.0, message="Working out the render plan", unit="step")
+
+    service = RenderService(_tools(context), project_dir=Path(project_dir),
+                            paths=context.paths)
+    plan = service.plan(project, overrides=context.get("overrides") or None)
+    reporter.update(current=1.0, message="Plan ready")
+    return {
+        "ready": plan.ready,
+        "duration": round(plan.duration, 3),
+        "frames": plan.frames,
+        "fps": plan.fps,
+        "segments": plan.segments,
+        "transitions": plan.transitions,
+        "resolution": plan.resolution,
+        "quality": plan.quality,
+        # OutputDecision.to_dict() already has the right fields; inventing a
+        # second shape here would drift from the one the CLI prints.
+        "output": plan.output.to_dict() if plan.output is not None else {},
+        "size_estimate": plan.size_estimate,
+        "time_estimate": plan.time_estimate,
+        "errors": [issue.to_dict() if hasattr(issue, "to_dict") else str(issue)
+                   for issue in plan.errors],
+        "warnings": [issue.to_dict() if hasattr(issue, "to_dict") else str(issue)
+                     for issue in plan.warnings],
+    }
+
+
+def render_plan_spec(context_payload: dict, **options: Any) -> JobSpec:
+    return JobSpec(
+        key=JobKeys.RENDER_PLAN,
+        title="Plan the render",
+        body=render_plan_body,
+        description="Working out what the render will do.",
         allow_parallel=False,
         payload=dict(context_payload, **options),
     )

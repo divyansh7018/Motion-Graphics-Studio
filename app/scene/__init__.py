@@ -13,6 +13,9 @@ operations:
     Report problems with wording a beginner can act on.
 ``build_timeline``
     Work out when each scene runs (narration wins).
+``TimelineService``
+    The Stage E entry point: build that one timeline and validate it, so the
+    preview, audio, subtitles and final render cannot disagree.
 
 Everything here is CPU-only, uses ``pathlib`` and has no import-time side
 effects: importing this package does not scan fonts, touch the disk or start a
@@ -33,6 +36,14 @@ from .canvas import (
     normalise_size,
 )
 from .compose import compose_scene, render_background, render_scene, save_image
+from .service import (
+    ERROR as TIMELINE_ERROR,
+    WARNING as TIMELINE_WARNING,
+    TimelineIssue,
+    TimelineReport,
+    TimelineService,
+    describe_timeline,
+)
 from .elements import (
     CHART_KINDS,
     ELEMENT_KINDS,
@@ -70,6 +81,12 @@ from .timing import Timeline, build_timeline, format_duration
 from .validate import SceneValidation, validate_project_scenes, validate_scene
 
 __all__ = [
+    "TIMELINE_ERROR",
+    "TIMELINE_WARNING",
+    "TimelineIssue",
+    "TimelineReport",
+    "TimelineService",
+    "describe_timeline",
     "ANCHOR_POINTS",
     "CHART_KINDS",
     "ELEMENT_KINDS",
