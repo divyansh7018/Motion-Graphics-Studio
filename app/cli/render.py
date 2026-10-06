@@ -179,6 +179,34 @@ def command_render_validate(args, paths: AppPaths, settings: Settings) -> int:
     return EXIT_OK if not errors else EXIT_PROBLEMS
 
 
+def command_render_timeline(args, paths: AppPaths, settings: Settings) -> int:
+    """Print the timeline through the same service the GUI and engine use."""
+    from app.scene.service import TimelineService, describe_timeline
+
+    service = _open_service(args, paths, settings)
+    project = service.current
+    timeline_service = TimelineService(project_dir=_project_dir(service),
+                                       tools=_tools_for(paths))
+    report = timeline_service.check(project)
+
+    print(describe_timeline(report.timeline))
+    print()
+    _print_issues("Errors (these stop a render):", report.errors)
+    _print_issues("Warnings (a render will continue):", report.warnings)
+    if not report.issues:
+        print("No problems found. The timeline is valid.")
+    else:
+        print(f"\n{len(report.errors)} error(s), {len(report.warnings)} warning(s).")
+    return EXIT_OK if report.ok else EXIT_PROBLEMS
+
+
+def _tools_for(paths: AppPaths):
+    """FFmpeg tools for the CLI, discovered the same way the GUI does it."""
+    from app.tools.ffmpeg import FFmpegTools, discover_ffmpeg
+
+    return FFmpegTools(discover_ffmpeg())
+
+
 def command_render_preview(args, paths: AppPaths, settings: Settings) -> int:
     _service, renders = _render_service(args, paths, settings)
     project = _service.current
@@ -358,6 +386,11 @@ def build_render_parser(subparsers) -> None:
     validate.add_argument("--project", help="Path to a project.json (default: most recent).")
     validate.set_defaults(func=command_render_validate)
 
+    timeline = render_sub.add_parser(
+        "timeline", help="Show the scene timings and whether they are valid.")
+    timeline.add_argument("--project", help="Path to a project.json (default: most recent).")
+    timeline.set_defaults(func=command_render_timeline)
+
     preview = render_sub.add_parser("preview", help="Show what a render would do.")
     preview.add_argument("--project", help="Path to a project.json (default: most recent).")
     _add_export_overrides(preview)
@@ -401,7 +434,7 @@ def build_subtitle_parser(subparsers) -> None:
 def run_render_command(args, paths: AppPaths, settings: Settings) -> int:
     command = getattr(args, "render_command", None)
     if not command:
-        print("Choose a sub-command: run, validate, preview, status, cancel.")
+        print("Choose a sub-command: run, validate, timeline, preview, status, cancel.")
         return EXIT_OK
     return _dispatch(args, paths, settings)
 

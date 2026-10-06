@@ -46,7 +46,7 @@ from .capabilities import (
 )
 from .encode import burn_subtitles, concat_and_mux, stream_encode
 from .frames import FrameError, FrameSource
-from .output import HistoryEntry, OutputDecision, OutputService
+from .output import HistoryEntry, OutputDecision, OutputService, export_settings
 from .qc import QCReport, QCService
 from .segments import plan_segments
 
@@ -312,9 +312,10 @@ class RenderEngine:
                 return True
         return False
 
-    def disk_check(self, settings: Any, frames: int) -> Optional[Any]:
+    def disk_check(self, settings: Any, frames: int,
+                   export: Any = None) -> Optional[Any]:
         """Refuse to start when there is not enough room for the scratch files."""
-        directory = self.output_service.output_directory(settings)
+        directory = self.output_service.output_directory(export or settings)
         try:
             directory.mkdir(parents=True, exist_ok=True)
             usage = shutil.disk_usage(directory)
@@ -406,7 +407,8 @@ class RenderEngine:
         errors, warnings = self.validate(project, duration=timeline.total_duration)
         for issue in plan.issues:
             (errors if issue.severity == "error" else warnings).append(issue)
-        disk_issue = self.disk_check(settings, plan.total_frames)
+        disk_issue = self.disk_check(settings, plan.total_frames,
+                                     export=export_settings(project))
         if disk_issue is not None:
             errors.append(disk_issue)
 
@@ -552,7 +554,7 @@ class RenderEngine:
         # -- ENCODING (assembly) ----------------------------------------
         self._check_cancelled()
         decision = self.output_service.decide(
-            settings, project_name=_project_name(project),
+            export_settings(project), project_name=_project_name(project),
             quality=str(settings.quality_preset), resolution=f"{settings.width}x{settings.height}")
         result.decision = decision
         staged = self.output_service.staging_path(decision)

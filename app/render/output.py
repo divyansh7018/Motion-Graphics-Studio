@@ -23,6 +23,7 @@ __all__ = [
     "OutputDecision",
     "HistoryEntry",
     "OutputService",
+    "export_settings",
     "DEFAULT_TEMPLATE",
     "render_template",
     "sanitize_component",
@@ -145,6 +146,19 @@ def sequence_from_name(name: str, pattern: Optional[str] = None) -> int:
         except ValueError:
             return 0
     return 0
+
+
+def export_settings(project: Any) -> Any:
+    """The section that says *where* a render goes and what it is called.
+
+    ``output_dir``, ``filename_template`` and ``next_sequence_number`` live on
+    the project's export section, not on ``project.format``.  Passing the format
+    spec here - as an earlier version did - silently used the defaults, so a
+    folder the user picked was ignored and the render landed in ``renders/``
+    anyway.  Falling back to the format spec keeps older callers working.
+    """
+    export = getattr(project, "export", None)
+    return export if export is not None else getattr(project, "format", None)
 
 
 class OutputService:

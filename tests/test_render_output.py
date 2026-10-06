@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from app.project.model import build_project
+from app.project.model import SceneSpec, build_project
+from app.render.engine import RenderRequest
 from app.render.output import (
     HistoryEntry,
     OutputService,
@@ -201,3 +202,52 @@ def test_a_corrupt_history_file_is_ignored_not_fatal(service, tmp_path: Path):
 def test_history_ignores_unknown_keys(tmp_path: Path):
     entry = HistoryEntry.from_dict({"path": "/tmp/x.mp4", "made_up": 1})
     assert entry.path == "/tmp/x.mp4"
+
+
+def test_the_configured_output_folder_is_actually_used(tmp_path: Path) -> None:
+    """The export section owns the folder - not the format spec.
+
+    An earlier version handed ``project.format`` to the output service, which
+    has no ``output_dir``, so the folder the user picked was silently ignored
+    and every render landed in ``renders/``.
+    """
+    from app.render.output import OutputService, export_settings
+
+    project = build_project("Output Folder")
+    project.export.output_dir = "my_exports"
+    project.export.filename_template = "{name}_take{seq}"
+    service = OutputService(tmp_path)
+
+    decision = service.decide(export_settings(project), project_name="Output Folder",
+                              quality="high", resolution="1280x720")
+    assert decision.directory == tmp_path / "my_exports"
+    assert decision.filename == "Output Folder_take1.mp4"
+
+    # The old call would have fallen back to the default folder.
+    assert service.output_directory(project.format) == tmp_path / "renders"
+
+
+def test_export_settings_prefers_the_export_section(tmp_path: Path) -> None:
+    from app.render.output import export_settings
+
+    project = build_project("Export Section")
+    assert export_settings(project) is project.export
+
+
+def test_an_unusable_output_folder_is_refused_before_rendering(tmp_path: Path) -> None:
+    """Section 55: never guess a folder, report the problem."""
+    from app.render.engine import RenderEngine
+    from app.tools.ffmpeg import FFmpegTools, discover_ffmpeg
+
+    project = build_project("Bad Folder")
+    project.format.width, project.format.height, project.format.fps = 512, 288, 25
+    project.add_scene(SceneSpec(name="Only"))
+    project.export.output_dir = "/proc/definitely/not/writable"
+
+    engine = RenderEngine(FFmpegTools(discover_ffmpeg()), project_dir=tmp_path)
+    result = engine.render(RenderRequest(project=project, quick_qc=True))
+
+    assert result.failed is True
+    assert result.path is None
+    codes = [getattr(issue, "code", "") for issue in result.errors]
+    assert "OUTPUT_FOLDER_UNAVAILABLE" in codes, codes

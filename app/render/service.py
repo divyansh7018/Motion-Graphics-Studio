@@ -21,7 +21,7 @@ from .capabilities import (
     estimate_render_time,
 )
 from .engine import RenderEngine, RenderProgress, RenderRequest, RenderResult
-from .output import OutputDecision, OutputService
+from .output import OutputDecision, OutputService, export_settings
 from .platform import PlatformPreset, apply_platform, platform_preset, platforms_from_project
 from .segments import plan_segments
 
@@ -175,7 +175,7 @@ class RenderService:
             (errors if issue.severity == "error" else warnings).append(issue)
 
         decision = self.output.decide(
-            settings, project_name=_project_name(project),
+            export_settings(project), project_name=_project_name(project),
             quality=str(settings.quality_preset),
             resolution=f"{settings.width}x{settings.height}")
 
