@@ -5,13 +5,20 @@ voice → images → scenes → timeline → audio → preview → MP4, all on o
 No account, no cloud, no subscription, no internet connection required for any
 core function.
 
-**Build stage: D — scene engine and storyboard.** This build adds a
-resolution-independent scene engine (text fitting, images, shapes, cards,
-numbers, charts), a scene registry, an animation/transitions foundation,
-narration-driven timing, and a Storyboard page with live, off-thread previews.
-It keeps the Stage A shell, the Stage B project system and the Stage C script +
-Kokoro narration intact. Final video rendering and QC arrive in later stages
-(see `docs/ROADMAP.md`).
+**Build stage: E — audio, subtitles, timeline, render and QC.** This build
+turns a project into a real MP4: a narration/music/effects mix with ducking,
+captions generated from measured narration timings, one timeline shared by
+every part of the pipeline, a streaming render with resume and cancellation,
+and a quality check that measures the finished file. It adds four working
+pages — Audio, Subtitles, Timeline and Render — and keeps the Stage A shell,
+the Stage B project system, the Stage C script + Kokoro narration and the
+Stage D scene engine intact.
+
+> **Kokoro status: NOT VERIFIED on the Stage E test machine.** The render
+> pipeline was verified end to end with explicitly labelled synthetic test
+> narration, because no Kokoro model weights were available and Hugging Face is
+> unreachable there. Run `motion-studio voice selftest` on a machine with the
+> weights for the real verdict. See `docs/STAGE_E_REPORT.md`.
 
 ---
 
@@ -43,14 +50,26 @@ Kokoro narration intact. Final video rendering and QC arrive in later stages
 | Narration generation to validated WAV, with measured duration | ✅ working |
 | Narration staleness, missing-file handling and regeneration | ✅ working |
 | Script and narration command line (`motion-studio script` / `voice` / `narration`) | ✅ working |
-| Automated test suite (830 tests) | ✅ passing |
-| Scenes, storyboard, scene preview | ✅ Stage D (this build) |
-| Final render, QC | ⏳ later stages |
+| Automated test suite (1163 tests) | ✅ passing |
+| Scenes, storyboard, scene preview | ✅ working |
+| Audio mix: narration, music, effects, ducking, normalisation | ✅ Stage E (this build) |
+| Audio preview without rendering video | ✅ Stage E (this build) |
+| Subtitles: SRT, WebVTT, styled ASS, burnt-in | ✅ Stage E (this build) |
+| Caption editing: split, merge, delete, reword, style, safe areas | ✅ Stage E (this build) |
+| Timeline page with validation (errors block, warnings continue) | ✅ Stage E (this build) |
+| Render page: platform presets, resolutions, fps, quality, codecs | ✅ Stage E (this build) |
+| Codec detection from the local FFmpeg build | ✅ Stage E (this build) |
+| Output numbering — never overwrites an earlier take | ✅ Stage E (this build) |
+| Quality check on the finished file (PASS / WARNING / FAIL) | ✅ Stage E (this build) |
+| Render cancellation and resume after interruption | ✅ Stage E (this build) |
+| Render, audio, subtitle and timeline command line | ✅ Stage E (this build) |
+| Kokoro narration verified on this machine | ⚠️ not verified — no model weights |
+| Image generation and a video library | ⏳ later stages |
 | Licensing, accounts, payments | ❌ not in this build (Phase 2, later) |
 
-Nothing in the interface pretends to work: pages for later stages are shown as
-`(later)`, are not clickable, and every one of them explains which stage
-delivers it. There are no placeholder buttons.
+Nothing in the interface pretends to work: the only pages still shown as
+`(later)` are Visuals (Stage H) and Video library (Stage G). A test asserts
+that no button on the Stage E pages is wired to nothing.
 
 ---
 
@@ -152,6 +171,15 @@ and explains how to install it; everything else keeps working.
 | `motion-studio voice preview --voice <id> [--text …]` | speak one sentence to a WAV file (never touches a project) |
 | `motion-studio narration generate <project> [--voice … --speed …]` | generate the narration audio for a project |
 | `motion-studio narration status <project>` | narration state, staleness, duration and files |
+| `motion-studio voice selftest` | generate one real narration file and report `KOKORO VERIFIED` or `KOKORO NOT VERIFIED - TEST FALLBACK USED` |
+| `motion-studio render timeline [--project …]` | scene timings and whether they are valid (same service the GUI uses) |
+| `motion-studio render validate [--project …]` | every problem that would block a render, before drawing a frame |
+| `motion-studio render preview [--project …]` | length, frames, output name and estimated size |
+| `motion-studio render run [--project …] [--burn-subtitles]` | render the finished MP4, then quality-check it |
+| `motion-studio render status [--project …]` | encoders this FFmpeg has, plus render history |
+| `motion-studio audio validate <project>` | check every audio track exists and fits the timeline |
+| `motion-studio audio mix <project>` | mix the master audio to a WAV you can listen to |
+| `motion-studio subtitles export <project>` | write the `.srt` / `.vtt` caption files |
 | `motion-studio gui` | start the interface |
 
 Exit codes: `0` success, `1` problems found, `2` blocked (a required component
@@ -229,6 +257,8 @@ click away in every error dialog (`Copy details`).
 | `docs/STAGE_B_REPORT.md` | evidence that this build meets the Stage B gate |
 | `docs/STAGE_C_REPORT.md` | evidence that this build meets the Stage C gate |
 | `docs/STAGE_D_REPORT.md` | evidence that this build meets the Stage D gate |
+| `docs/STAGE_E_REPORT.md` | evidence for the Stage E gate, and what is still unverified |
+| `docs/evidence/` | the actual rendered MP4s and caption files |
 | `docs/PROJECT_FORMAT.md` | the versioned project file format (schema v2) |
 
 ---

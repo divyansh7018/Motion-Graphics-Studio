@@ -79,6 +79,26 @@ Test layout:
 GUI tests run with Qt's `offscreen` platform (`tests/conftest.py` sets it), so no
 window appears and no display is required.
 
+Stage E added twelve more files, 268 tests. These render real video with a real
+FFmpeg and read the results back through the probe, so they are slower (the
+whole suite is around 80 s) but check the bytes on disk rather than the model
+that produced them:
+
+| File | Covers |
+|---|---|
+| `test_media_probe.py` | parsing real facts out of `ffmpeg -i` (no ffprobe) |
+| `test_audio_service.py` | mix graph, fades, ducking, audio validation |
+| `test_subtitles.py` | cue generation, SRT/VTT/ASS, caption editing |
+| `test_stage_e_services.py` | `TimelineService` and `SubtitleService` |
+| `test_render_segments.py` | segment planning and transition overlap |
+| `test_render_capabilities.py` | codec detection and the validation matrix |
+| `test_render_output.py` | naming, sequence, staging, output folder |
+| `test_render_qc.py` | every QC check against real files |
+| `test_render_engine.py` | real renders, states, resume, cancellation |
+| `test_gui_stage_e.py` | the four Stage E pages, including "no dead buttons" |
+| `test_kokoro_selftest.py` | the two Kokoro verification states |
+| `test_schema_stage_e.py` | old projects load, new ones round-trip |
+
 ---
 
 ## 4. Headless containers
@@ -185,7 +205,36 @@ slot) and show a dialog only for failures or explicitly user-started tasks.
 
 ---
 
-## 8. Release checklist (Stage A)
+## 8. Working on the render pipeline (Stage E)
+
+Three rules keep this part of the codebase honest, and each one exists because
+breaking it produced a bug that was hard to see:
+
+* **Measure, don't assume.** Anything claimed about a finished file comes from
+  `app/media/probe.py` or `QCService`, never from the model that produced it.
+  A test that asserts "the render is 1080p" must read the file back.
+* **One timeline, one judgement.** `TimelineService` is the only place timings
+  are built and validated; the engine calls it rather than keeping a second
+  opinion. If you add a timing rule, add it there so the GUI, the CLI and the
+  render all agree.
+* **Heavy work goes in a job.** Capability detection, planning, mixing and
+  rendering all start subprocesses. `test_gui_stage_e.py` asserts they are
+  submitted as jobs, so a change that runs one inline will fail a test.
+
+FFmpeg gotchas worth knowing before you debug an encode:
+
+* `blackdetect` prints `black_start:0` with **colons**, not `=`, and takes
+  `pix_th` (per-pixel luma) and `pic_th` (fraction of pixels) as two different
+  knobs. Confusing them flags a dark theme as a black screen.
+* `astats` reports `-inf` dB for complete silence, which is a real reading and
+  not a missing one.
+* A mix command using `apad` or `stream_loop=-1` never terminates without an
+  explicit `-t <duration>` on the output. This once wrote 9.75 GB for an 8.4 s
+  timeline, and the runaway process survived its parent being killed.
+* A flat single-colour frame encodes *smaller* at CRF 16 than at CRF 36, so a
+  test asserting "higher quality means a bigger file" needs real content.
+
+## 9. Release checklist (Stage A)
 
 1. `python -m pytest tests -q` → all green.
 2. `python -m app.cli.main check --deep` → required items ✓.
@@ -194,3 +243,11 @@ slot) and show a dialog only for failures or explicitly user-started tasks.
    start and clean close, no `ERROR` lines in the log.
 5. Re-run 3 and 4 launching from a *different* working directory.
 6. `python installer/setup_windows.py` on a clean machine → exit code 0.
+
+Stage E adds to the checklist:
+
+7. `python scripts/stage_e_manual_matrix.py --data-root <fresh folder>` → 25/25.
+8. `python scripts/stage_e_end_to_end.py --data-root <fresh folder>` → both
+   renders COMPLETED, both QC PASS, Video1 proven untouched.
+9. `motion-studio voice selftest` → record whichever of the two states it
+   prints. Do not write "Kokoro verified" unless it printed `KOKORO VERIFIED`.

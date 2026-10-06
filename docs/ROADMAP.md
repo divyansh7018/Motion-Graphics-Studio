@@ -146,11 +146,46 @@ See ``docs/STAGE_D_REPORT.md`` for the full evidence.  Highlights:
 
 ---
 
+## Stage E — audio, subtitles, timeline, render and QC (complete)
+
+See ``docs/STAGE_E_REPORT.md`` for the full evidence.  Highlights:
+
+* A real audio subsystem: narration, music beds, ambience, intro/outro and
+  sound effects with volume, trim, fades, loop and mute; a Narration → Music →
+  SFX → Master chain with normalisation and gentle ducking by default.
+* Captions generated from **measured** narration timings, exported as SRT,
+  WebVTT and styled ASS, with burn-in through libass.  No word-level timings are
+  invented, and captions outside the safe area are reported rather than moved.
+* ``TimelineService`` builds the one timeline the preview, audio, subtitles and
+  render all use, so they cannot disagree.  Fatal errors block a render;
+  warnings are reported and the user decides.
+* A streaming render engine: scene frames → segments → assemble → mux → QC →
+  atomic move.  Never loads the whole video in RAM, has no duration cap, caches
+  segments so an interrupted render resumes, and cancels by killing FFmpeg.
+* Codec availability is detected from the local FFmpeg, so an unavailable codec
+  is refused before a frame is drawn.
+* Output numbering never overwrites an earlier take; a finished file is written
+  to a temporary name and moved atomically after QC.
+* A quality check that measures the real file - dimensions, frame rate,
+  duration, codecs, audio, silence, clipping, black frames - and returns
+  PASS / WARNING / FAIL.  A FAIL is never reported as success.
+* Four working pages (Audio, Subtitles, Timeline, Render) and
+  ``motion-studio render|audio|subtitles …`` commands sharing the same services.
+* 1163 automated tests in total (268 added in this stage).
+
+**Kokoro was not verified on the Stage E test machine** - no model weights were
+available.  The pipeline was verified with explicitly labelled synthetic test
+narration, and ``motion-studio voice selftest`` reports which of the two states
+applies.  See the report before treating Stage E as signed off.
+
 ## Later stages (summary)
 
-
-**E — Audio.** Narration + music + SFX mixing with narration dominant, ducking,
-clipping detection, optional subtitles with validation.
+Stage E pulled forward most of what was originally scoped for F and G, because a
+render cannot be verified without them: streaming frames to FFmpeg,
+memory-bounded rendering, cancellation that terminates FFmpeg, numbered output
+files, post-render validation, black-frame and silent-audio detection and
+PASS/WARNING/FAIL reporting all exist now. What is left for F and G is listed
+below; neither is complete.
 
 **F — Rendering.** Streaming frames to FFmpeg, real narration durations as the
 authority for timing, configured padding, memory-bounded rendering, cancellation

@@ -1,0 +1,17 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: MGS,DejaVu Sans,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,1,2,64,64,43,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.90,MGS,,0,0,0,,This is the first scene of the Stage E\Nverification matrix.
+Dialogue: 0,0:00:02.00,0:00:04.20,MGS,,0,0,0,,The second scene carries an imported\Nimage.
+Dialogue: 0,0:00:04.30,0:00:06.80,MGS,,0,0,0,,The third scene shows a chart drawn from\Nreal data.
+Dialogue: 0,0:00:06.90,0:00:09.70,MGS,,0,0,0,,And the fourth closes on a single number.

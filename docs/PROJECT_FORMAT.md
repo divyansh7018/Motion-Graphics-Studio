@@ -176,15 +176,43 @@ is never rewritten behind the user's back.
 ```json
 {
   "narration_enabled": true, "narration_volume": 1.0,
-  "music": { "path": "", "volume": 0.18, "loop": true, "fade_in": 1.0, "fade_out": 2.0 },
-  "sfx": [],
+  "music": {
+    "id": "music-1", "path": "assets/music.wav", "asset_id": "",
+    "volume": 0.18, "loop": true, "fade_in": 1.0, "fade_out": 2.0,
+    "start": 0.0, "end": 0.0, "trim_in": 0.0, "trim_out": 0.0,
+    "mute": false, "enabled": true, "measured_duration": 0.0
+  },
+  "music_tracks": [],
+  "ambience": { "path": "" }, "intro": { "path": "" }, "outro": { "path": "" },
+  "sfx": [{
+    "id": "sfx-1", "path": "assets/ping.wav", "asset_id": "",
+    "volume": 0.6, "at_seconds": 0.4, "offset": 0.0,
+    "anchor": "project", "scene_id": "",
+    "duration": 0.0, "trim_in": 0.0, "fade_in": 0.02, "fade_out": 0.15,
+    "repeat": 0, "mute": false, "enabled": true, "measured_duration": 0.0
+  }],
+  "master_volume": 1.0,
   "ducking_enabled": true, "ducking_level": 0.35,
-  "normalize_enabled": true, "target_lufs": -16.0, "sample_rate": 48000
+  "ducking_attack": 0.25, "ducking_release": 0.75,
+  "normalize_enabled": true, "target_lufs": -16.0,
+  "sample_rate": 48000, "channels": 2
 }
 ```
 
-`music.path` and every `sfx[].path` are project-relative. Stage B stores these
-settings; the mixing itself arrives in Stage E.
+`music.path` and every `sfx[].path` are project-relative. Volumes are fractions
+(1.0 = unchanged), and times are seconds on the project timeline.
+
+`sfx[].anchor` says what `at_seconds` is measured from: `project` (the
+timeline), `scene` (that scene's start, named by `scene_id`), or `narration`.
+This lets an effect follow the picture without the user doing the arithmetic.
+
+`music.end` of `0` means "run to the end of the video". `trim_in`/`trim_out`
+choose which part of the *file* plays, so a long track can be used without
+importing an edit.
+
+The mix chain is Narration → Music → SFX → Master; `master_volume` applies
+after the three have been combined. Ducking is deliberately gentle by default
+(music at 35 % while the voice speaks) so it never disappears.
 
 ### 3.7 `scenes` (ordered)
 
@@ -346,6 +374,38 @@ Regenerate / Relink / Ignore choice. Nothing is deleted and the project still
 opens.
 
 ---
+
+### 3.11 `subtitles`
+
+```json
+{
+  "enabled": false, "burn_in": false, "language": "",
+  "cues": [{ "id": "cue-1", "start": 0.0, "end": 4.26, "text": "Hello there." }],
+  "position": "bottom", "margin_percent": 6.0,
+  "shadow": true, "background": "", "background_opacity": 0.0,
+  "timing_source": "none"
+}
+```
+
+Caption **content and layout** live here; caption **type** (font, size, colour,
+outline, `max_lines`, `safe_area_percent`) lives in `theme.subtitle_style`. The
+split is deliberate - a theme can restyle captions across a project without
+touching their timings - and both are read together when captions are rendered.
+
+`cues[].start`/`end` are seconds on the project timeline, so a caption follows
+the picture whatever the frame rate or resolution.
+
+`timing_source` records where the timings came from and is never faked:
+
+| Value | Meaning |
+| --- | --- |
+| `none` | No captions generated yet. |
+| `narration` | Derived from the measured narration files. |
+| `manual` | The user edited a timing, split or merged a caption. |
+
+`language` is independent of the narration language. Captions are never
+translated automatically, and no word-level timing is invented: splitting a
+caption divides its text at a word boundary and marks the result `manual`.
 
 ## 4. Versioning and migration
 

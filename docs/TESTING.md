@@ -4,9 +4,14 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 889 tests passing** (Stage A 153 + Stage B 208 + Stage C 230 +
-Stage D 298). See `STAGE_A_REPORT.md`, `STAGE_B_REPORT.md`, `STAGE_C_REPORT.md` and
-`STAGE_D_REPORT.md` for the exact runs.
+**Current status: 1163 tests passing** (Stage A 153 + Stage B 208 + Stage C 230 +
+Stage D 298 + Stage E 268, plus shared fixtures). See `STAGE_A_REPORT.md`,
+`STAGE_B_REPORT.md`, `STAGE_C_REPORT.md`, `STAGE_D_REPORT.md` and
+`STAGE_E_REPORT.md` for the exact runs.
+
+Stage E tests render real video with a real FFmpeg and read the results back
+through the probe, so they are slower than the earlier stages but check the
+actual bytes on disk rather than the model that produced them.
 
 ---
 
@@ -56,6 +61,15 @@ python scripts/stage_c_manual_matrix.py --data-root /tmp/mgs_evidence --engine f
 
 # the sixteen Stage D manual scenarios, headless, rendering real preview pixels
 python scripts/stage_d_manual_matrix.py --data-root /tmp/mgs_stage_d
+
+# the twenty-five Stage E scenarios: real renders, QC, cancellation, failures,
+# five resolutions and four quality presets.  Add --narration kokoro to refuse
+# the synthetic-audio fallback and require real Kokoro.
+python scripts/stage_e_manual_matrix.py --data-root /tmp/mgs_stage_e
+
+# the Stage E end-to-end deliverable: StageE_Test_Video1.mp4 then _Video2.mp4,
+# both probed and quality-checked, with Video1 proven untouched
+python scripts/stage_e_end_to_end.py --data-root /tmp/stage_e
 
 # the ten Stage B manual scenarios, headless, with a printed pass/fail table
 python scripts/stage_b_manual_matrix.py --data-root /tmp/mgs_matrix

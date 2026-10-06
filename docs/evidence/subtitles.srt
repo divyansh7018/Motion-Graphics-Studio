@@ -1,0 +1,18 @@
+1
+00:00:00,000 --> 00:00:01,900
+This is the first scene of the Stage E
+verification matrix.
+
+2
+00:00:02,000 --> 00:00:04,200
+The second scene carries an imported
+image.
+
+3
+00:00:04,300 --> 00:00:06,800
+The third scene shows a chart drawn from
+real data.
+
+4
+00:00:06,900 --> 00:00:09,700
+And the fourth closes on a single number.

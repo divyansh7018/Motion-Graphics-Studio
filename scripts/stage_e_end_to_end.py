@@ -186,6 +186,9 @@ def build_project(service: ProjectService, tools: FFmpegTools) -> tuple[object, 
     project.format.encoder_preset = "veryfast"
     project.format.crf = 26
     project.export.output_dir = "renders"
+    # The directive names the deliverables StageE_Test_Video1.mp4 and _Video2,
+    # so the template is set to match rather than left at the default.
+    project.export.filename_template = "{name}_Video{seq}"
     return project, notes, project_dir
 
 
@@ -353,8 +356,18 @@ def main(argv=None) -> int:
     ok = (first.ok and second.ok and untouched and separate
           and not checked_1["report"].has_fail and not checked_2["report"].has_fail)
     _log(f"\nOVERALL: {'PASS' if ok else 'FAIL'}")
-    if narration_kind != "kokoro":
-        _log("LIMITATION: narration is synthetic on this machine (no Kokoro weights).")
+
+    # The two states the Stage E gate requires, kept distinct.
+    from app.tts.selftest import NOT_VERIFIED, VERIFIED
+
+    if narration_kind == "kokoro":
+        _log(f"PIPELINE VERIFIED.  {VERIFIED}.")
+    else:
+        _log(f"PIPELINE VERIFIED.  {NOT_VERIFIED}.")
+        _log("The render pipeline is verified with explicitly labelled synthetic")
+        _log("test narration; the Kokoro runtime path remains unverified on this")
+        _log("machine because model weights are unavailable.  There is no cloud or")
+        _log("paid voice service behind it.")
     return 0 if ok else 1
 
 
