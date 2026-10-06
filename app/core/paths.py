@@ -32,6 +32,7 @@ DATA_SUBDIRECTORIES: tuple[str, ...] = (
     "config",
     "projects",
     "assets",
+    "images",
     "templates",
     "themes",
     "models",
@@ -51,6 +52,7 @@ PROTECTED_DIRECTORIES: tuple[str, ...] = (
     "config",
     "projects",
     "assets",
+    "images",
     "templates",
     "themes",
     "models",
@@ -337,6 +339,16 @@ class AppPaths:
     @property
     def models_dir(self) -> Path:
         return self._sub("models")
+
+    @property
+    def images_dir(self) -> Path:
+        """The image library: the user's own pictures, never cleared."""
+        return self._sub("images")
+
+    @property
+    def image_thumbnails_dir(self) -> Path:
+        """Cached image thumbnails.  Regenerable, so it is safe to clear."""
+        return self.cache_dir / "image_thumbs"
 
     @property
     def workspace_dir(self) -> Path:

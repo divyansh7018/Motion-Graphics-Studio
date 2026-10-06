@@ -60,6 +60,7 @@ from .views.project_settings import ProjectSettingsPage
 from .views.audio_view import AudioPage
 from .views.narration_view import NarrationPage
 from .views.render_view import RenderPage
+from .views.image_studio_view import ImageStudioPage
 from .views.subtitles_view import SubtitlesPage
 from .views.timeline_view import TimelinePage
 from .views.project_view import ProjectPage
@@ -80,6 +81,7 @@ PAGES: tuple[tuple[str, str, str, str], ...] = (
     ("storyboard", "Storyboard", "Create", "ready"),
     ("audio", "Audio", "Create", "ready"),
     ("subtitles", "Subtitles", "Create", "ready"),
+    ("images", "Image Studio", "Create", "ready"),
     ("timeline", "Timeline", "Produce", "ready"),
     ("render", "Render", "Produce", "ready"),
     ("project_settings", "Project settings", "Create", "ready"),
@@ -89,7 +91,6 @@ PAGES: tuple[tuple[str, str, str, str], ...] = (
 
 FUTURE_PAGES: tuple[tuple[str, str, str], ...] = (
     # (label, section, stage note)  - only pages that genuinely are not built.
-    ("Visuals", "Create", "Stage H - images"),
     ("Video library", "Produce", "Stage G - output"),
 )
 
@@ -241,6 +242,7 @@ class MainWindow(QMainWindow):
         self.storyboard_page = StoryboardPage(self.context)
         self.audio_page = AudioPage(self.context)
         self.subtitles_page = SubtitlesPage(self.context)
+        self.image_studio_page = ImageStudioPage(self.context)
         self.timeline_page = TimelinePage(self.context)
         self.render_page = RenderPage(self.context)
         self.project_settings_page = ProjectSettingsPage(self.context)
@@ -258,6 +260,7 @@ class MainWindow(QMainWindow):
             "storyboard": self.storyboard_page,
             "audio": self.audio_page,
             "subtitles": self.subtitles_page,
+            "images": self.image_studio_page,
             "timeline": self.timeline_page,
             "render": self.render_page,
             "project_settings": self.project_settings_page,

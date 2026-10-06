@@ -225,6 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser = subparsers.add_parser("smoke-test", help="Run the built-in end-to-end smoke test.")
     smoke_parser.set_defaults(func=command_smoke_test)
 
+    from .image import build_image_parser
     from .project import build_project_parser
     from .render import build_audio_parser, build_render_parser, build_subtitle_parser
     from .scene import build_scene_parser
@@ -236,6 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_render_parser(subparsers)
     build_audio_parser(subparsers)
     build_subtitle_parser(subparsers)
+    build_image_parser(subparsers)
 
     gui_parser = subparsers.add_parser("gui", help="Start the graphical application.")
     gui_parser.set_defaults(func=command_gui)
@@ -261,6 +263,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return _dispatch_render(args)
         if getattr(args, "command", None) in ("script", "voice", "narration"):
             return _dispatch_voice(args)
+        if getattr(args, "command", None) == "image":
+            return _dispatch_image(args)
         return int(args.func(args))
     except PathResolutionError as exc:
         print(f"The application folders could not be prepared:\n{exc}")
@@ -319,6 +323,20 @@ def _dispatch_render(args) -> int:
     if getattr(args, "command", None) == "subtitles":
         return run_subtitle_command(args, paths, load_result.settings)
     return run_render_command(args, paths, load_result.settings)
+
+
+def _dispatch_image(args) -> int:
+    """Run an ``image`` subcommand against a bootstrapped application.
+
+    Image Studio works with no model installed, so this never refuses to run:
+    the commands report what is and is not available.
+    """
+    from .image import run_image_command
+
+    paths, load_result = _bootstrap(args)
+    if getattr(args, "image_command", None):
+        _print_header(paths)
+    return run_image_command(args, paths, load_result.settings)
 
 
 def _dispatch_voice(args) -> int:

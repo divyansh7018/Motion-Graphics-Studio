@@ -48,9 +48,15 @@ class JobKeys:
     QC_RUN = "qc.run"
     OUTPUT_VALIDATE = "output.validate"
 
-    # -- Stage H (images) --------------------------------------------------
+    # -- Stage F (Image Studio) -------------------------------------------
     IMAGE_IMPORT = "image.import"
     IMAGE_GENERATE = "image.generate"
+    IMAGE_BATCH = "image.batch"
+    IMAGE_EDIT_SAVE = "image.edit_save"
+    IMAGE_UPSCALE = "image.upscale"
+    IMAGE_DETECT = "image.detect"
+    IMAGE_LIBRARY_SCAN = "image.library_scan"
+    IMAGE_THUMBNAILS = "image.thumbnails"
 
 
 #: Keys that are allowed to run in parallel with themselves (used only where

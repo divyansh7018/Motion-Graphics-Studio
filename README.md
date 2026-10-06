@@ -5,19 +5,31 @@ voice → images → scenes → timeline → audio → preview → MP4, all on o
 No account, no cloud, no subscription, no internet connection required for any
 core function.
 
-**Build stage: E — audio, subtitles, timeline, render and QC.** This build
-turns a project into a real MP4: a narration/music/effects mix with ducking,
-captions generated from measured narration timings, one timeline shared by
-every part of the pipeline, a streaming render with resume and cancellation,
-and a quality check that measures the finished file. It adds four working
-pages — Audio, Subtitles, Timeline and Render — and keeps the Stage A shell,
-the Stage B project system, the Stage C script + Kokoro narration and the
-Stage D scene engine intact.
+**Build stage: F — Image Studio, local image generation, editing and asset
+integration.** This build adds a local image studio: create or import pictures,
+edit them non-destructively, generate with a local backend if one is installed,
+organise them in a paged library, and send them into a project or a scene. It
+keeps the Stage A shell, the Stage B project system, the Stage C script + Kokoro
+narration, the Stage D scene engine and the Stage E audio/subtitle/timeline/render
+pipeline intact.
 
-> **Three statuses that must not be blurred together:**
+> **Image Studio works with no image model installed.** Importing, editing,
+> upscaling, masking, organising and sending to a scene need none, and a prompt
+> with no model is refused with an explanation rather than faked. See
+> `docs/STAGE_F_REPORT.md` for exactly which backends were verified here — most
+> AI ones were not, because the test machine has none installed.
+
+**Stage E**, kept intact by this build, turns a project into a real MP4: a
+narration/music/effects mix with ducking, captions generated from measured
+narration timings, one timeline shared by every part of the pipeline, a
+streaming render with resume and cancellation, and a quality check that measures
+the finished file.
+
+> **Four statuses that must not be blurred together:**
 >
-> * **PIPELINE VERIFIED** — 1181 tests, a 35/35 manual matrix and two real MP4
->   renders, every measurement taken with FFprobe.
+> * **PIPELINE VERIFIED** — 1410 tests, a 35/35 Stage E matrix and a 29/29
+>   Stage F matrix, real MP4 renders measured with FFprobe, and 13 real bugs
+>   found and fixed during the Stage F hardening pass.
 > * **KOKORO NOT VERIFIED — TEST FALLBACK USED** — the `kokoro` package is
 >   installed but there are no model weights on the verification machine, so the
 >   narration in every test render is explicitly labelled synthetic audio. Run
@@ -26,9 +38,15 @@ Stage D scene engine intact.
 > * **WINDOWS NOT VERIFIED** — the verification ran on Linux. Windows paths,
 >   `%TEMP%`, shortcut independence and `ffmpeg.exe` discovery are still to be
 >   checked on a real Windows 10/11 machine.
+> * **NO AI IMAGE MODEL INSTALLED** — text-to-image and friends were verified
+>   through the built-in and local-command adapters (real code paths, not real
+>   models). AI upscaling and background removal report NOT INSTALLED, and real
+>   diffusion inference is NOT VERIFIED.
 >
-> The Stage E gate is therefore **not** declared complete. See
-> `docs/STAGE_E_REPORT.md` §15 for the full evidence table.
+> Neither the Stage E gate nor the Stage F gate is therefore **declared
+> complete**. The Stage E evidence table is in `docs/STAGE_E_REPORT.md` §15 and
+> the Stage F one in `docs/STAGE_F_REPORT.md` §0, with the outstanding items in
+> §10.
 
 ---
 
@@ -73,7 +91,15 @@ Stage D scene engine intact.
 | Quality check on the finished file (PASS / WARNING / FAIL) | ✅ Stage E (this build) |
 | Render cancellation and resume after interruption | ✅ Stage E (this build) |
 | Render, audio, subtitle and timeline command line | ✅ Stage E (this build) |
+| Image Studio page: import, edit, generate, organise, send to scene | ✅ Stage F (this build) |
+| Six image backends behind one provider contract, capability-driven UI | ✅ Stage F (this build) |
+| Non-destructive editing (16 operations, undo/redo/reset) | ✅ Stage F (this build) |
+| Image library: paging, search, tags, collections, duplicates, thumbnails | ✅ Stage F (this build) |
+| Image metadata (side-car + inside PNG), history, version graph | ✅ Stage F (this build) |
+| Images in projects and scenes by asset id, surviving a move | ✅ Stage F (this build) |
 | Kokoro narration verified on this machine | ⚠️ NOT VERIFIED — no model weights |
+| Image generation with a real AI model | ⚠️ NOT VERIFIED — none installed here |
+| Background removal, AI upscaling | ⚠️ NOT INSTALLED — refused, never faked |
 | Windows 10/11 end-to-end run | ⚠️ NOT VERIFIED — verification ran on Linux |
 | FFprobe used to measure finished files | ✅ verified (6.0-static) |
 | Two-pass encoding | ✅ verified — both passes really run |
@@ -271,6 +297,9 @@ click away in every error dialog (`Copy details`).
 | `docs/STAGE_C_REPORT.md` | evidence that this build meets the Stage C gate |
 | `docs/STAGE_D_REPORT.md` | evidence that this build meets the Stage D gate |
 | `docs/STAGE_E_REPORT.md` | evidence for the Stage E gate, and what is still unverified |
+| `docs/STAGE_F_REPORT.md` | evidence for the Stage F gate: what was verified, what was not, and why |
+| `docs/IMAGE_STUDIO.md` | how to use Image Studio |
+| `docs/IMAGE_BACKENDS.md` | the six backends, their capabilities and how to add one |
 | `docs/evidence/` | the actual rendered MP4s and caption files |
 | `docs/PROJECT_FORMAT.md` | the versioned project file format (schema v2) |
 

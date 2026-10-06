@@ -108,6 +108,21 @@ real logic on a machine without a display.
 | `app/scene/jobs.py` | storyboard/preview job bodies and specs |
 | `app/scene/service.py` | **`TimelineService`**: the one timeline, built once and validated (Stage E) |
 | `app/cli/scene.py` | `motion-studio scene list\|validate\|info`, via `SceneService` |
+| `app/image/provider.py` | the image-backend contract: `ImageProvider`, `GenerationRequest`, `GenerationResult`, capabilities and states |
+| `app/image/registry.py` | builds and caches the adapters; the model manager (one model at a time) |
+| `app/image/service.py` | **`ImageService`**: the facade the GUI, the CLI and the scripts all use |
+| `app/image/jobs.py` | image job bodies: detect, generate, batch, thumbnails, upscale, import |
+| `app/image/integration.py` | project and scene integration: send an image to a project or a scene by asset id |
+| `app/image/editor.py` | non-destructive editing as a list of operations |
+| `app/image/saving.py` | atomic image writes, format safety, unique names |
+| `app/image/library.py` | the paged image library, tags, collections, duplicates and the thumbnail cache |
+| `app/image/metadata.py` | the record kept with every image: side-car plus PNG text chunks |
+| `app/image/variants.py` | the version graph (source → variation → edit → upscale) |
+| `app/image/device.py` | CPU/RAM/GPU detection; does **not** import torch unless asked |
+| `app/image/upscale.py` | Standard Resize and the AI-upscale path, always labelled |
+| `app/image/background_removal.py` | the AVAILABLE / NOT INSTALLED / NOT SUPPORTED states and manual masking |
+| `app/image/backends/*.py` | the six adapters: `standard`, `command`, `http`, `comfyui`, `diffusers`, `onnx` |
+| `app/cli/image.py` | `motion-studio image ...` |
 | `app/media/probe.py` | reads a finished file's real facts — FFprobe JSON when available, else an explicitly labelled `ffmpeg -i` fallback; records which one it used |
 | `app/audio/ducking.py` | narration windows, merged ranges and the duck gain expression |
 | `app/audio/mix.py` | the FFmpeg filter graph for narration → music → SFX → master |
@@ -156,11 +171,42 @@ real logic on a machine without a display.
 | `app/ui/views/subtitles_view.py` | the Subtitles page: caption list, style, split/merge/delete, export |
 | `app/ui/views/timeline_view.py` | the Timeline page: real timings, excluded scenes, validation |
 | `app/ui/views/render_view.py` | the Render page: platform, resolution, quality, plan, render, QC |
+| `app/ui/views/image_studio_view.py` | the Image Studio page: modes, prompts, backend/model, preview, edit panel, history, actions |
+| `app/ui/views/image_studio_view.py` | the Image Studio page: modes, prompts, backend/model, preview, edit panel, history, actions |
 | `app/ui/views/*` | other pages (dashboard, project, project settings, browser, system check, settings, maintenance, diagnostics) |
 | `app/ui/widgets/*` | shared widgets (cards, rows, job panel) |
 | `app/diagnostics/smoke.py` | end-to-end self-test |
 
 ---
+
+### 3a. The image layer
+
+Images follow the same shape as the rest of the application: a contract, adapters,
+a service, jobs and a page.
+
+```
+Image Studio page / CLI  ->  ImageService  ->  BackendRegistry  ->  adapter
+                                  |                                  |
+                              library, history,                  a local model,
+                              metadata, variants                 a program, or
+                                                                 the built-in one
+```
+
+Two rules hold the layer together:
+
+* **A backend reports what it can do, and nothing is believed beyond that.** A
+  feature that is not reported is disabled in the interface with the reason
+  shown. There is no silent fallback to another backend, and no fake result: with
+  no model installed a prompt is refused, with the alternative explained.
+* **There is exactly one image system.** A scene stores an **asset id**, not a
+  path and not a copy, and `app/image/integration.py` resolves it through the
+  scene module's own `build_asset_paths()` - the same table the renderer uses. A
+  project can therefore be moved without breaking, and two references to one
+  picture stay one asset.
+
+Detection deliberately loads nothing, and does not import torch (which costs
+about 500 MB of memory to answer "is there a GPU?"). `detect_device(deep=True)`
+is the opt-in path.
 
 ## 4. The job system
 

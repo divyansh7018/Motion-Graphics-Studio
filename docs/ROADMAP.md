@@ -208,9 +208,49 @@ being folded into the rest:
 Every other mandatory Stage E criterion is verified by a real run.  See
 ``docs/STAGE_E_REPORT.md`` §15.
 
+## Stage F - Image Studio and local image generation (implemented; gate NOT signed off)
+
+See ``docs/STAGE_F_REPORT.md`` for the full evidence.  Highlights:
+
+* An ``app/image`` package: a provider contract with **six** backend adapters
+  (built-in, local command, local HTTP, ComfyUI, Diffusers, ONNX), a model
+  manager, a capability system and a device report that does not need a GPU.
+* The studio works with **no model installed** - importing, editing, upscaling,
+  masking, organising and sending to a scene need none.  A prompt with no model
+  is refused with an explanation, never faked.
+* Non-destructive editing built on a list of 16 operations, so Reset costs
+  nothing and the original is never modified.  Overwriting one is a separate,
+  confirmed action that keeps a backup.
+* Metadata written twice (a side-car and inside the PNG), a version graph
+  (source -> variation -> edit -> upscale), generation and prompt history.
+* A paged, searchable, tagged library with cached thumbnails; a deleted file is
+  reported as missing rather than vanishing.
+* Images go into projects and scenes **by asset id**, so a project can be moved
+  and still find them, and there is only one image system.
+* ``motion-studio image ...``: ten sub-commands sharing the same services.
+
+### Why the gate is not signed off
+
+* **No AI model is installed on the verification machine.**  Text to image,
+  image to image, inpaint, outpaint and upscale were verified through the
+  built-in and local-command adapters - real code paths, not real models - and
+  the AI upscaler and background-removal paths are **NOT INSTALLED**.
+* **The Diffusers, ComfyUI and ONNX adapters stop at the model-loading
+  boundary** and raise rather than guess.  Real inference is **NOT VERIFIED**.
+* **Windows remains NOT VERIFIED** (carried from Stage E).
+* **Kokoro remains NOT VERIFIED - TEST FALLBACK USED** (carried from Stage E).
+
+### The measurement that mattered most
+
+The first profiling run showed detection costing 1.4 s and **+476.7 MiB of RSS**
+because it imported torch to ask whether a GPU existed - and then reported
+"torch: not installed" when it was installed with no accelerator.  Detection now
+costs **2 ms and +0.0 MiB**, and the deep probe tells the truth.
+
 ## Later stages (summary)
 
-Stage E pulled forward most of what was originally scoped for F and G, because a
+Stage F built the image side of the application.  Stage E pulled forward most of
+what was originally scoped for F and G, because a
 render cannot be verified without them: streaming frames to FFmpeg,
 memory-bounded rendering, cancellation that terminates FFmpeg, numbered output
 files, post-render validation, black-frame and silent-audio detection and

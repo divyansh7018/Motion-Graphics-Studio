@@ -147,12 +147,40 @@ class PreviewSettings:
 
 @dataclass
 class ImageSettings:
-    """Image pipeline options (sections 20, 21)."""
+    """Image pipeline options (sections 20, 21) and Image Studio state.
+
+    The Stage F fields remember what the user last chose so the studio opens
+    where they left it (section 63).  No secret is ever stored here: a local
+    backend is addressed by a command line or a loopback URL, never by a key.
+    """
 
     backend: str = "none"               # none | procedural | local_ai
     default_fit: str = "cover"          # contain | cover | crop | center | anchor
     thumbnail_size: int = 320
     max_import_megapixels: int = 80
+
+    # -- Stage F: Image Studio -------------------------------------------
+    #: Which adapter the studio starts on.  "" means "detect and choose".
+    active_backend: str = ""
+    active_model: str = ""
+    #: A local program the command backend runs, with {prompt}/{seed}/{output}
+    #: placeholders.  Empty means the backend reports itself not installed.
+    command: str = ""
+    #: A local HTTP endpoint.  Must be on this machine; remote is refused.
+    endpoint: str = ""
+    comfyui_endpoint: str = ""
+    comfyui_workflow: str = ""
+    #: Last used generation settings, so reopening does not reset the form.
+    last_mode: str = ""
+    last_width: int = 0
+    last_height: int = 0
+    last_quality: str = ""
+    last_output_dir: str = ""
+    #: Beginner mode hides the advanced settings until asked for (section 48).
+    beginner_mode: bool = True
+    #: Prompt history lives in its own file; this only remembers the last few
+    #: so the field can be pre-filled after a restart.
+    recent_prompts: list = field(default_factory=list)
 
 
 @dataclass

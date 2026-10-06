@@ -4,13 +4,15 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 1181 passed, 2 skipped, 0 failed** (Stage A 153 + Stage B 208 +
-Stage C 230 + Stage D 298 + Stage E 268 + Stage E hardening 20 = 1177, plus 4
-shared-fixture tests). See `STAGE_A_REPORT.md`, `STAGE_B_REPORT.md`,
-`STAGE_C_REPORT.md`, `STAGE_D_REPORT.md` and `STAGE_E_REPORT.md` for the exact
-runs.
+**Current status: 1415 collected - 1410 passed, 5 skipped, 0 failed.**
 
-Both skips are environmental — "this FFmpeg has every codec, so none can be
+Of the passing tests: Stage A 153 + Stage B 208 + Stage C 230 + Stage D 298 +
+Stage E 268 + Stage E hardening 20 + 4 shared-fixture tests = 1181, plus
+**Stage F 229** (of 232 collected) = 1410.  See `STAGE_A_REPORT.md`,
+`STAGE_B_REPORT.md`, `STAGE_C_REPORT.md`, `STAGE_D_REPORT.md`,
+`STAGE_E_REPORT.md` and `STAGE_F_REPORT.md` for the exact runs.
+
+All five skips are environmental — "this FFmpeg has every codec, so none can be
 shown missing" and "FFmpeg is installed on this machine" — and each scenario is
 covered by another test that fabricates the missing capability.
 
@@ -75,6 +77,14 @@ python scripts/stage_e_manual_matrix.py --data-root /tmp/mgs_stage_e
 # memory / performance profiling: real RSS at startup, GUI, load, preview,
 # long-form planning and during a real render
 python scripts/stage_e_profile.py --data-root /tmp/mgs_profile
+
+# the Stage F manual matrix: import, edit, generate, seed reuse, batch,
+# cancel, scenes, a 300-image library (29 checks, prints pass/fail/N-A)
+python scripts/stage_f_manual_matrix.py --data-root /tmp/mgs_stage_f
+
+# Stage F performance: startup, detection, generation memory, thumbnails,
+# a large library and batches - measured, not invented
+python scripts/stage_f_profile.py --data-root /tmp/mgs_stage_f_profile
 
 # the Stage E end-to-end deliverable: StageE_Test_Video1.mp4 then _Video2.mp4,
 # both probed and quality-checked, with Video1 proven untouched

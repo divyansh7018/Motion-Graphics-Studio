@@ -418,6 +418,68 @@ None of them are written into `project.json`. They are code-level tables, so
 **`PROJECT_SCHEMA_VERSION` stays at 3** — a schema bump would force migrations
 on every existing project for no change in what is stored.
 
+### 3.13 Images in a project
+
+Images do **not** get a new section. A picture sent from Image Studio becomes an
+ordinary :class:`AssetSpec` and its scene reference is an ordinary
+:class:`ElementSpec` with ``kind="image"`` and ``asset_id`` set:
+
+```json
+"assets": [
+  {
+    "id": "asset-1a2b3c4d",
+    "name": "hero banner",
+    "kind": "image",
+    "path": "assets/hero banner.png",
+    "size_bytes": 18244,
+    "width": 1280,
+    "height": 720,
+    "notes": "Prompt: a blue banner | Model: command-model | Seed: 1234"
+  }
+],
+"scenes": [
+  {
+    "background": "asset-9f8e7d6c",
+    "elements": [
+      {"id": "el-...", "kind": "image", "asset_id": "asset-1a2b3c4d",
+       "position": {"x": 0.5, "y": 0.5},
+       "size": {"mode": "relative", "value": 0.45}}
+    ]
+  }
+]
+```
+
+Why this shape:
+
+* **`path` is project-relative** (``assets/...``), so the project survives being
+  moved or copied to another machine. An absolute path is stored only when the
+  user explicitly references a file in place, and validation flags it.
+* **`asset_id` is the reference**, not a path, so renaming or moving the file
+  inside the project cannot break the scene, and the same picture used twice
+  stays one asset.
+* **`scene.background` may hold an asset id** as well as a colour or gradient.
+  `app/scene/compose.py:_background_parts()` resolves an id through the project's
+  asset table and falls back to treating the value as a colour, so an older
+  project renders exactly as it did before.
+* **`notes` carries the generation facts** (prompt, model, seed, resolution,
+  origin). They are prose rather than new fields on purpose: an asset imported
+  from a camera roll has no seed, and inventing one would be worse than storing
+  nothing.
+
+The image's own record - the full prompt, seed, steps, lineage and edit history -
+lives beside the image file, not in ``project.json``:
+
+```
+assets/hero banner.png          the picture
+assets/hero banner.png.json     its record (side-car JSON)
+```
+
+A PNG also carries the generation fields inside its own text chunks, so an image
+copied somewhere on its own still knows its prompt and seed. Losing a side-car
+loses the edit history, not the picture.
+
+**No schema change was needed**, so ``PROJECT_SCHEMA_VERSION`` stays at **3**.
+
 ## 4. Versioning and migration
 
 | Situation | Behaviour |
