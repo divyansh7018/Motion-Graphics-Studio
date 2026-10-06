@@ -588,29 +588,94 @@ def _theme_from_dict(data: Any) -> ThemeSpec:
     return theme
 
 
+def _theme_from_dict_classmethod(cls, data: Any) -> ThemeSpec:
+    return _theme_from_dict(data)
+
+
+# ``ThemeSpec`` owns nested sections too (typography and subtitle styling), so it
+# needs the same treatment - otherwise ``ThemeSpec.from_dict`` hands back dicts.
+ThemeSpec.from_dict = classmethod(_theme_from_dict_classmethod)  # type: ignore[assignment]
+
+
 # --------------------------------------------------------------------------
 # Audio
 # --------------------------------------------------------------------------
 
 @dataclass
 class MusicTrack(_Section):
+    """One background music bed (directive section 5).
+
+    Timings are seconds on the project timeline.  ``start``/``end`` place the bed;
+    ``trim_in``/``trim_out`` choose which part of the *file* plays, so a long
+    track can be used without importing an edit.
+    """
+
+    id: str = ""
     #: Project-relative path (``assets/music.mp3``) preferred, never absolute.
     path: str = ""
+    #: An asset id, when the file is managed on the Assets page.
+    asset_id: str = ""
     volume: float = 0.18
     loop: bool = True
     fade_in: float = 1.0
     fade_out: float = 2.0
+    #: Where the bed starts and stops on the project timeline (seconds).
+    start: float = 0.0
+    #: ``0`` means "run to the end of the project".
+    end: float = 0.0
+    #: Seconds skipped at the start / trimmed from the end of the source file.
+    trim_in: float = 0.0
+    trim_out: float = 0.0
+    mute: bool = False
+    enabled: bool = True
+    #: Length measured from the file, so the UI can show it without decoding.
+    measured_duration: float = 0.0
     extra: dict = field(default_factory=dict)
+
+    @property
+    def reference(self) -> str:
+        """The file this bed comes from (path preferred, then asset id)."""
+        return self.path or self.asset_id
 
 
 @dataclass
 class SoundEffect(_Section):
+    """One sound effect placed on the timeline (directive section 6).
+
+    ``anchor`` says what ``at_seconds`` is measured from: the project timeline, a
+    scene's start, or a narration event - so an effect can follow the picture
+    without the user doing the arithmetic.
+    """
+
     id: str = ""
     path: str = ""
+    asset_id: str = ""
     volume: float = 0.6
     at_seconds: float = 0.0
+    #: Extra shift applied after the anchor is resolved (can be negative).
+    offset: float = 0.0
+    #: ``"project"`` (default), ``"scene"`` or ``"narration"``.
+    anchor: str = "project"
+    #: Scene id when ``anchor`` is "scene".
+    scene_id: str = ""
     duration: float = 0.0
+    trim_in: float = 0.0
+    fade_in: float = 0.0
+    fade_out: float = 0.0
+    #: Times to repeat (0 = play once).  Repeats follow the file's own length.
+    repeat: int = 0
+    mute: bool = False
+    enabled: bool = True
+    measured_duration: float = 0.0
     extra: dict = field(default_factory=dict)
+
+    @property
+    def reference(self) -> str:
+        return self.path or self.asset_id
+
+
+#: What an audio item's start time is measured from.
+AUDIO_ANCHORS: tuple[str, ...] = ("project", "scene", "narration")
 
 
 @dataclass
@@ -621,19 +686,45 @@ class AudioSpec(_Section):
     narration_volume: float = 1.0
     music: MusicTrack = field(default_factory=MusicTrack)
     sfx: list[SoundEffect] = field(default_factory=list)
+    #: Additional music beds, so a project can change mood between sections.
+    music_tracks: list[MusicTrack] = field(default_factory=list)
+    #: Optional ambience / intro / outro beds, kept separate so they can be
+    #: muted or replaced without touching the main music bed.
+    ambience: MusicTrack = field(default_factory=MusicTrack)
+    intro: MusicTrack = field(default_factory=MusicTrack)
+    outro: MusicTrack = field(default_factory=MusicTrack)
+    #: Master fader for the whole mix (1.0 = unchanged).
+    master_volume: float = 1.0
     ducking_enabled: bool = True
     #: Music level while narration is speaking (fraction of ``music.volume``).
     ducking_level: float = 0.35
+    #: How quickly the music drops and recovers, in seconds (section 8).
+    ducking_attack: float = 0.25
+    ducking_release: float = 0.75
     normalize_enabled: bool = True
     target_lufs: float = -16.0
     sample_rate: int = 48000
+    channels: int = 2
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         data = _section_dict(self)
         data["music"] = _section_dict(self.music)
+        data["ambience"] = _section_dict(self.ambience)
+        data["intro"] = _section_dict(self.intro)
+        data["outro"] = _section_dict(self.outro)
         data["sfx"] = [_section_dict(effect) for effect in self.sfx]
+        data["music_tracks"] = [_section_dict(track) for track in self.music_tracks]
         return data
+
+    def all_music(self) -> list:
+        """Every music-like bed, in mixing order (main bed first)."""
+        beds = [self.music, *self.music_tracks, self.ambience, self.intro, self.outro]
+        return [bed for bed in beds if bed.reference]
+
+    def all_tracks(self) -> list:
+        """Every configured audio item (music beds then effects)."""
+        return [*self.all_music(), *self.sfx]
 
 
 def _audio_from_dict(data: Any) -> AudioSpec:
@@ -641,8 +732,120 @@ def _audio_from_dict(data: Any) -> AudioSpec:
     _merge(audio, data)
     if isinstance(data, dict):
         audio.music = MusicTrack.from_dict(data.get("music"))
+        audio.ambience = MusicTrack.from_dict(data.get("ambience"))
+        audio.intro = MusicTrack.from_dict(data.get("intro"))
+        audio.outro = MusicTrack.from_dict(data.get("outro"))
         audio.sfx = [SoundEffect.from_dict(item) for item in _as_list(data.get("sfx"))]
+        audio.music_tracks = [MusicTrack.from_dict(item) for item in _as_list(data.get("music_tracks"))]
+    if audio.ducking_attack <= 0:
+        audio.ducking_attack = 0.25
+    if audio.ducking_release <= 0:
+        audio.ducking_release = 0.75
     return audio
+
+
+def _audio_from_dict_classmethod(cls, data: Any) -> AudioSpec:
+    return _audio_from_dict(data)
+
+
+# ``AudioSpec`` must parse its nested beds and effects; the generic
+# ``_Section.from_dict`` would leave ``music``/``sfx`` as raw dicts, which is the
+# same trap that caught ``SceneSpec.elements`` in Stage D.
+AudioSpec.from_dict = classmethod(_audio_from_dict_classmethod)  # type: ignore[assignment]
+
+
+# --------------------------------------------------------------------------
+# Subtitles
+# --------------------------------------------------------------------------
+
+@dataclass
+class SubtitleCue(_Section):
+    """One line of captions and when it is on screen.
+
+    Times are seconds on the project timeline, so a cue follows the picture
+    whatever the frame rate or resolution.
+    """
+
+    id: str = ""
+    start: float = 0.0
+    end: float = 0.0
+    text: str = ""
+    extra: dict = field(default_factory=dict)
+
+    @property
+    def duration(self) -> float:
+        return max(0.0, float(self.end) - float(self.start))
+
+
+#: Where captions sit in the frame.
+SUBTITLE_POSITIONS: tuple[str, ...] = ("bottom", "top", "middle")
+
+#: Where cue timings came from - shown to the user so an estimate is never
+#: mistaken for measured word-level alignment (directive section 13).
+SUBTITLE_TIMING_SOURCES: tuple[str, ...] = ("none", "narration", "manual")
+
+SUBTITLE_TIMING_LABELS: dict[str, str] = {
+    "none": "No timing yet",
+    "narration": "From the measured narration",
+    "manual": "Edited by hand",
+}
+
+
+@dataclass
+class SubtitleSpec(_Section):
+    """Caption content, styling and how the timings were derived."""
+
+    enabled: bool = False
+    #: Burn the captions into the picture, instead of only exporting a file.
+    burn_in: bool = False
+    #: Independent of the narration language; never auto-translated (section 15).
+    language: str = ""
+    cues: list[SubtitleCue] = field(default_factory=list)
+    position: str = "bottom"
+    #: Distance from the edge as a percentage of the frame height.
+    margin_percent: float = 6.0
+    shadow: bool = True
+    #: Optional box behind the text ("" = none).
+    background: str = ""
+    background_opacity: float = 0.0
+    #: Provenance of the cue timings, so the UI can be honest about accuracy.
+    timing_source: str = "none"
+    extra: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        data = _section_dict(self)
+        data["cues"] = [_section_dict(cue) for cue in self.cues]
+        return data
+
+    def timing_label(self) -> str:
+        return SUBTITLE_TIMING_LABELS.get(self.timing_source, self.timing_source)
+
+    def sorted_cues(self) -> list:
+        return sorted(self.cues, key=lambda cue: (cue.start, cue.end))
+
+    @property
+    def duration(self) -> float:
+        """When the last caption ends.  A property, like every other duration."""
+        return max((cue.end for cue in self.cues), default=0.0)
+
+
+def _subtitle_from_dict(data: Any) -> SubtitleSpec:
+    spec = SubtitleSpec()
+    _merge(spec, data)
+    if isinstance(data, dict):
+        spec.cues = [SubtitleCue.from_dict(item) for item in _as_list(data.get("cues"))]
+    if spec.position not in SUBTITLE_POSITIONS:
+        spec.position = "bottom"
+    if spec.timing_source not in SUBTITLE_TIMING_SOURCES:
+        spec.timing_source = "none"
+    return spec
+
+
+def _subtitle_from_dict_classmethod(cls, data: Any) -> SubtitleSpec:
+    return _subtitle_from_dict(data)
+
+
+SubtitleSpec.from_dict = classmethod(_subtitle_from_dict_classmethod)  # type: ignore[assignment]
 
 
 def _narration_from_dict(data: Any) -> NarrationPlan:
@@ -893,6 +1096,7 @@ class Project:
     voice: VoiceSpec = field(default_factory=VoiceSpec)
     theme: ThemeSpec = field(default_factory=ThemeSpec)
     audio: AudioSpec = field(default_factory=AudioSpec)
+    subtitles: SubtitleSpec = field(default_factory=SubtitleSpec)
     narration: NarrationPlan = field(default_factory=NarrationPlan)
     scenes: list[SceneSpec] = field(default_factory=list)
     assets: list[AssetSpec] = field(default_factory=list)
@@ -912,6 +1116,7 @@ class Project:
             "voice": self.voice.to_dict(),
             "theme": self.theme.to_dict(),
             "audio": self.audio.to_dict(),
+            "subtitles": self.subtitles.to_dict(),
             "narration": self.narration.to_dict(),
             "scenes": [scene.to_dict() for scene in self.scenes],
             "assets": [asset.to_dict() for asset in self.assets],
@@ -928,7 +1133,7 @@ class Project:
         if not isinstance(data, dict):
             return project
 
-        known = {"schema_version", "application_version", "project", "format", "script", "voice", "theme", "audio", "narration", "scenes", "assets", "export"}
+        known = {"schema_version", "application_version", "project", "format", "script", "voice", "theme", "audio", "subtitles", "narration", "scenes", "assets", "export"}
         project.schema_version = _as_int(data.get("schema_version"), PROJECT_SCHEMA_VERSION)
         project.application_version = _as_str(data.get("application_version"), APP_VERSION)
         project.project = ProjectMeta.from_dict(data.get("project"))
@@ -937,6 +1142,7 @@ class Project:
         project.voice = VoiceSpec.from_dict(data.get("voice"))
         project.theme = _theme_from_dict(data.get("theme"))
         project.audio = _audio_from_dict(data.get("audio"))
+        project.subtitles = _subtitle_from_dict(data.get("subtitles"))
         project.narration = _narration_from_dict(data.get("narration"))
         project.scenes = [_scene_from_dict(item) for item in _as_list(data.get("scenes"))]
         project.assets = [AssetSpec.from_dict(item) for item in _as_list(data.get("assets"))]
@@ -1406,6 +1612,7 @@ __all__ = [
     "ANCHORS",
     "ASSET_KINDS",
     "AssetSpec",
+    "AUDIO_ANCHORS",
     "AudioSpec",
     "ElementSpec",
     "ExportSpec",
@@ -1428,7 +1635,12 @@ __all__ = [
     "SceneSpec",
     "ScriptSection",
     "ScriptSpec",
+    "SUBTITLE_POSITIONS",
+    "SUBTITLE_TIMING_LABELS",
+    "SUBTITLE_TIMING_SOURCES",
     "SoundEffect",
+    "SubtitleCue",
+    "SubtitleSpec",
     "SubtitleStyle",
     "TRANSITION_TYPES",
     "ThemeSpec",
