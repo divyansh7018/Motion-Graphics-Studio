@@ -226,12 +226,16 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser.set_defaults(func=command_smoke_test)
 
     from .project import build_project_parser
+    from .render import build_audio_parser, build_render_parser, build_subtitle_parser
     from .scene import build_scene_parser
     from .voice import build_voice_parsers
 
     build_project_parser(subparsers)
     build_scene_parser(subparsers)
     build_voice_parsers(subparsers)
+    build_render_parser(subparsers)
+    build_audio_parser(subparsers)
+    build_subtitle_parser(subparsers)
 
     gui_parser = subparsers.add_parser("gui", help="Start the graphical application.")
     gui_parser.set_defaults(func=command_gui)
@@ -253,6 +257,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return _dispatch_project(args)
         if getattr(args, "command", None) == "scene":
             return _dispatch_scene(args)
+        if getattr(args, "command", None) in ("render", "audio", "subtitles"):
+            return _dispatch_render(args)
         if getattr(args, "command", None) in ("script", "voice", "narration"):
             return _dispatch_voice(args)
         return int(args.func(args))
@@ -294,6 +300,25 @@ def _dispatch_scene(args) -> int:
     if getattr(args, "scene_command", None):
         _print_header(paths)
     return run_scene_command(args, paths, load_result.settings)
+
+
+def _dispatch_render(args) -> int:
+    """Run a ``render``, ``audio`` or ``subtitles`` subcommand.
+
+    All three go through the same services the GUI uses, so the command line and
+    the application can never disagree about what is wrong with a project.
+    """
+    from .render import run_audio_command, run_render_command, run_subtitle_command
+
+    paths, load_result = _bootstrap(args)
+    if getattr(args, "render_command", None) or getattr(args, "audio_command", None) \
+            or getattr(args, "subtitle_command", None):
+        _print_header(paths)
+    if getattr(args, "command", None) == "audio":
+        return run_audio_command(args, paths, load_result.settings)
+    if getattr(args, "command", None) == "subtitles":
+        return run_subtitle_command(args, paths, load_result.settings)
+    return run_render_command(args, paths, load_result.settings)
 
 
 def _dispatch_voice(args) -> int:
