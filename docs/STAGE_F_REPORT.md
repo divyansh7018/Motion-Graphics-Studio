@@ -61,14 +61,14 @@ produced the result quoted beside it.
 | Settings persistence | **VERIFIED** | `test_the_chosen_backend_is_remembered` |
 | Command line | **VERIFIED** | 10 `image` sub-commands exercised; all use the same services as the GUI |
 | Windows | **NOT VERIFIED** | see §6 - everything ran on Linux |
-| Stage A-E regression | **VERIFIED** | 1410 passed, 5 skipped, 0 failed (§1) |
+| Stage A-E regression | **VERIFIED** | 1492 passed, 5 skipped, 0 failed (§1) |
 
 ---
 
 ## 1. Tests
 
 ```
-1415 collected: 1410 passed, 5 skipped, 0 failed in 91.04s
+1497 collected: 1492 passed, 5 skipped, 0 failed in 101.75s
 ruff check app tests scripts installer --select F,E9   -> All checks passed
 ```
 
@@ -76,8 +76,9 @@ ruff check app tests scripts installer --select F,E9   -> All checks passed
 |---|---|
 | Collected before Stage F (end of Stage E) | 1183 (1181 passed, 2 skipped) |
 | **Added by Stage F** | **232 (229 passed, 3 skipped)** |
-| Collected now | 1415 |
-| Result | **1410 passed, 5 skipped, 0 failed** |
+| Added by the cross-stage hardening modules | **82** (`test_hardening_render_chain.py` 21, `test_hardening_audio_captions.py` 21, `test_hardening_image_jobs.py` 40) |
+| Collected now | 1497 |
+| Result | **1492 passed, 5 skipped, 0 failed** |
 
 The per-stage totals for A-E are in each stage's own report; the figures above
 are what this run actually collected and ran.

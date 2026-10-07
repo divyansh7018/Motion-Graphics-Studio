@@ -20,6 +20,8 @@ from typing import Any
 from ..core.logging_setup import log_event
 
 __all__ = [
+    "name_skeleton",
+    "sequence_from_template",
     "OutputDecision",
     "HistoryEntry",
     "OutputService",
@@ -101,6 +103,79 @@ def sanitize_component(text: str, *, replacement: str = "_") -> str:
     return cleaned or "Video"
 
 
+#: Stand-in for the take number while the rest of a template is expanded.  It
+#: cannot appear in a real name (the sanitizer leaves ``@`` alone, but no user
+#: template contains this word), so splitting on it gives the literal text
+#: before and after the number.
+SEQUENCE_MARKER = "@@MGS_SEQ@@"
+
+
+def _template_values(moment: datetime, *, project: str, sequence: Any,
+                     quality: str = "", resolution: str = "", channel: str = "",
+                     date: str = "") -> dict:
+    """The placeholder values, with the take number substituted separately."""
+    number = str(sequence)
+    return {
+        "name": sanitize_component(project),
+        "project": sanitize_component(project),
+        "channel": sanitize_component(channel) or "Channel",
+        "seq": number,
+        "n": number,
+        "sequence": number,
+        "quality": sanitize_component(quality),
+        "resolution": sanitize_component(resolution),
+        "date": date or moment.strftime("%Y-%m-%d"),
+        "time": moment.strftime("%H%M"),
+    }
+
+
+def _expand(text: str, values: dict) -> str:
+    out = text
+    for key, value in values.items():
+        out = out.replace("{" + key + "}", str(value))
+    return out
+
+
+def name_skeleton(template: str, *, project: str, quality: str = "",
+                  resolution: str = "", channel: str = "",
+                  when: Optional[datetime] = None) -> tuple[str, str]:
+    """The text a template puts *before* and *after* the take number.
+
+    Used to recognise this project's own takes in an output folder.  Without it
+    the take scan read the trailing digits of every file, so one unrelated
+    ``Holiday 2024.mp4`` in a shared folder turned the first take of a new
+    project into ``Project_Video2024.mp4``.
+    """
+    moment = when or datetime.now()
+    text = str(template or DEFAULT_TEMPLATE)
+    if not any(marker in text for marker in ("{seq}", "{n}", "{sequence}")):
+        text = f"{text}_{{seq}}"
+    expanded = _expand(text, _template_values(moment, project=project,
+                                              sequence=SEQUENCE_MARKER,
+                                              quality=quality, resolution=resolution,
+                                              channel=channel))
+    head, marker, tail = expanded.partition(SEQUENCE_MARKER)
+    if not marker:  # pragma: no cover - every template gains {seq} above
+        return expanded, ""
+    return head, tail
+
+
+def sequence_from_template(name: str, *, head: str, tail: str,
+                           suffix: str = "") -> int:
+    """Read the take number out of a name that matches this template, else 0."""
+    stem = Path(str(name)).stem
+    if suffix and Path(str(name)).suffix.lower() != suffix.lower():
+        return 0
+    pattern = re.compile(re.escape(head) + r"(\d+)" + re.escape(tail) + r"\Z")
+    match = pattern.match(stem)
+    if not match:
+        return 0
+    try:
+        return int(match.group(1))
+    except ValueError:  # pragma: no cover - the regex only matches digits
+        return 0
+
+
 def render_template(template: str, *, project: str, sequence: int,
                     quality: str = "", resolution: str = "",
                     channel: str = "", date: str = "", when: Optional[datetime] = None) -> str:
@@ -117,23 +192,10 @@ def render_template(template: str, *, project: str, sequence: int,
     text = str(template or DEFAULT_TEMPLATE)
     if not any(marker in text for marker in ("{seq}", "{n}", "{sequence}")):
         text = f"{text}_{{seq}}"
-    number = str(int(sequence))
-    values = {
-        "name": sanitize_component(project),
-        "project": sanitize_component(project),
-        "channel": sanitize_component(channel) or "Channel",
-        "seq": number,
-        "n": number,
-        "sequence": number,
-        "quality": sanitize_component(quality),
-        "resolution": sanitize_component(resolution),
-        "date": date or moment.strftime("%Y-%m-%d"),
-        "time": moment.strftime("%H%M"),
-    }
-    out = text
-    for key, value in values.items():
-        out = out.replace("{" + key + "}", str(value))
-    return sanitize_component(out)
+    values = _template_values(moment, project=project, sequence=int(sequence),
+                              quality=quality, resolution=resolution,
+                              channel=channel, date=date)
+    return sanitize_component(_expand(text, values))
 
 
 def sequence_from_name(name: str, pattern: Optional[str] = None) -> int:
@@ -191,13 +253,20 @@ class OutputService:
         container = str(container or getattr(settings, "container", "mp4") or "mp4")
         start = max(1, int(getattr(settings, "next_sequence_number", 1) or 1))
 
-        # Start from the stored number, then walk forward past anything present.
+        # Start from the stored number, then walk forward past this project's
+        # own takes.  Only names that match *this* template count: an unrelated
+        # file that happens to end in digits must not push the number away.
+        head, tail = name_skeleton(template, project=project_name, quality=quality,
+                                   resolution=resolution)
+        suffix = f".{container}"
         sequence = start
         highest_seen = 0
         for existing in directory.glob("*") if directory.is_dir() else []:
-            number = sequence_from_name(existing.name)
+            number = sequence_from_template(existing.name, head=head, tail=tail,
+                                            suffix=suffix)
             highest_seen = max(highest_seen, number)
-        sequence = max(sequence, highest_seen + 1) if highest_seen else sequence
+        if highest_seen:
+            sequence = max(sequence, highest_seen + 1)
 
         filename = ""
         chosen = sequence

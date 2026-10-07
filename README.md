@@ -27,9 +27,11 @@ the finished file.
 
 > **Four statuses that must not be blurred together:**
 >
-> * **PIPELINE VERIFIED** — 1410 tests, a 35/35 Stage E matrix and a 29/29
->   Stage F matrix, real MP4 renders measured with FFprobe, and 13 real bugs
->   found and fixed during the Stage F hardening pass.
+> * **PIPELINE VERIFIED** — 1492 tests, a 35/35 Stage E matrix and a 29/29
+>   Stage F matrix, real MP4 renders measured with FFprobe, and 22 real bugs
+>   found and fixed by the hardening passes - 13 in Stage F (`STAGE_F_REPORT.md`
+>   §8) and 9 more in the Stage E render/audio/caption chain
+>   (`STAGE_E_REPORT.md` §8).
 > * **KOKORO NOT VERIFIED — TEST FALLBACK USED** — the `kokoro` package is
 >   installed but there are no model weights on the verification machine, so the
 >   narration in every test render is explicitly labelled synthetic audio. Run

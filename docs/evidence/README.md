@@ -58,17 +58,17 @@ demonstrates Windows paths, `%TEMP%` handling, shortcut independence or
 Both `StageE_Test` files, read back with FFprobe:
 
 ```
-1280x720, 30.0 fps, 12.00s, h264 / yuv420p, aac 48000 Hz 2 ch, 446,683 bytes
+1280x720, 30.0 fps, 12.00s, h264 / yuv420p, aac 48000 Hz 2 ch, 446,514 bytes
 QC: PASS
-md5 fbc999135ee51c637a1f6152ef37f301   (both files)
+md5 a9741295ee358446fc192be1535087cb   (both files)
 ```
 
 `StageE_Matrix_1.mp4`:
 
 ```
-1280x720, 30.0 fps, 10.20s, h264 / yuv420p, aac 48000 Hz 2 ch, 386,862 bytes
+1280x720, 30.0 fps, 10.20s, h264 / yuv420p, aac 48000 Hz 2 ch, 386,612 bytes
 QC: PASS
-md5 4a88eea1569f96ffdf9f6ff75bcf250f
+md5 f5bdc0824042ac73b8668b90cc338313
 ```
 
 `StageE_Test_Video1.mp4` and `StageE_Test_Video2.mp4` are byte-identical because

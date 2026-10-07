@@ -171,8 +171,10 @@ See ``docs/STAGE_E_REPORT.md`` for the full evidence.  Highlights:
   PASS / WARNING / FAIL.  A FAIL is never reported as success.
 * Four working pages (Audio, Subtitles, Timeline, Render) and
   ``motion-studio render|audio|subtitles …`` commands sharing the same services.
-* 1181 automated tests in total (268 added in Stage E, plus 20 in the final
-  hardening pass).
+* 1492 automated tests in total - 268 added in Stage E, 20 in the Stage E
+  hardening pass, 40 in the Stage E render/audio/caption hardening modules
+  (`test_hardening_render_chain.py`, `test_hardening_audio_captions.py`,
+  `test_hardening_image_jobs.py`) and 229 in Stage F.
 
 ### The final hardening pass
 
@@ -189,8 +191,18 @@ it was hiding:
 
 It also produced the first real measurements rather than design claims:
 FFprobe 6.0 verified and actually used, two-pass encoding verified with both
-passes in the log, and a memory profile (peak 138.9 MiB) from
+passes in the log, and a memory profile (peak 143.7 MiB) from
 ``scripts/stage_e_profile.py``.
+
+A second, wider hardening pass covered the whole render call chain (plan ->
+FFmpeg argv -> real file -> FFprobe), the audio/caption path and the image
+studio.  It found and fixed nine more real defects - a ducking level that was
+applied as the amount *removed* instead of the amount *kept*, a cancelled
+generation whose child process kept running, caption files written in place and
+replaceable, take numbering that counted files that were not the project's own,
+a narration check that blocked exports when it could not run, and a
+variation mode name that did not exist - all listed in ``docs/STAGE_E_REPORT.md``
+§8 with a regression test each.
 
 ### Why the gate is not signed off
 

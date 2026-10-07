@@ -250,11 +250,14 @@ class RenderEngine:
         return self.caps
 
     def validate(self, project: Any, *, duration: float = 0.0,
-                 two_pass: bool = False) -> tuple[list, list]:
+                 two_pass: bool = False,
+                 include_audio: bool = True) -> tuple[list, list]:
         """Everything that must be right before drawing a single frame.
 
         Returns ``(errors, warnings)``.  Errors block the render; warnings are
-        reported and the user decides (directive section 19).
+        reported and the user decides (directive section 19).  ``include_audio``
+        is the export's own audio switch: with audio turned off, audio problems
+        are warnings, because the file will not contain any audio to spoil.
         """
         errors: list = []
         warnings: list = []
@@ -282,7 +285,8 @@ class RenderEngine:
         for issue in timeline_report.issues:
             (errors if issue.is_error else warnings).append(issue)
 
-        audio_validation = self.audio_service.validate(project, timeline)
+        audio_validation = self.audio_service.validate(project, timeline,
+                                                       include_audio=include_audio)
         for error in audio_validation.errors:
             errors.append(error)
         for warning in audio_validation.warnings:
@@ -408,7 +412,8 @@ class RenderEngine:
         self._check_cancelled()
         self._set_state(VALIDATING, "Checking the project before rendering")
         errors, warnings = self.validate(project, duration=timeline.total_duration,
-                                         two_pass=request.two_pass)
+                                         two_pass=request.two_pass,
+                                         include_audio=request.include_audio)
         for issue in plan.issues:
             (errors if issue.severity == "error" else warnings).append(issue)
         disk_issue = self.disk_check(settings, plan.total_frames,
@@ -478,18 +483,21 @@ class RenderEngine:
             if cues:
                 srt_path = work_dir / "subtitles.srt"
                 vtt_path = work_dir / "subtitles.vtt"
-                write_subtitle_file(srt_path, to_srt(cues))
-                write_subtitle_file(vtt_path, to_vtt(cues))
+                # These live in the render's own work folder and are rebuilt from
+                # the project every time, so replacing a leftover one is correct.
+                write_subtitle_file(srt_path, to_srt(cues), overwrite=True)
+                write_subtitle_file(vtt_path, to_vtt(cues), overwrite=True)
                 result.details["subtitle_files"] = [str(srt_path), str(vtt_path)]
                 result.details["subtitle_count"] = len(cues)
                 burn = project.subtitles.burn_in if request.burn_subtitles is None \
                     else bool(request.burn_subtitles)
                 if burn:
-                    ass_file = work_dir / "subtitles.ass"
-                    write_subtitle_file(ass_file, to_ass(
-                        cues, _subtitle_style(project),
-                        width=settings.width, height=settings.height,
-                        spec=project.subtitles))
+                    ass_file = write_subtitle_file(
+                        work_dir / "subtitles.ass",
+                        to_ass(cues, _subtitle_style(project),
+                               width=settings.width, height=settings.height,
+                               spec=project.subtitles),
+                        overwrite=True)
                     result.details["subtitle_burn"] = str(ass_file)
 
         # -- SCENES ------------------------------------------------------

@@ -4,17 +4,22 @@ This project follows the directive's rule that a build is only called stable
 when the suite passes, the smoke test passes, and the end-to-end, cancellation,
 restart, duplicate-generation and output-validation tests have actually been run.
 
-**Current status: 1415 collected - 1410 passed, 5 skipped, 0 failed.**
+**Current status: 1497 collected - 1492 passed, 5 skipped, 0 failed.**
+(measured 2026-10-07, see `STAGE_E_REPORT.md` §10 and `STAGE_F_REPORT.md`.)
 
 Of the passing tests: Stage A 153 + Stage B 208 + Stage C 230 + Stage D 298 +
 Stage E 268 + Stage E hardening 20 + 4 shared-fixture tests = 1181, plus
-**Stage F 229** (of 232 collected) = 1410.  See `STAGE_A_REPORT.md`,
+**Stage F 229** (of 232 collected) = 1410, plus **82** tests in the three
+cross-stage hardening modules (`test_hardening_render_chain.py` 21,
+`test_hardening_audio_captions.py` 21, `test_hardening_image_jobs.py` 40) =
+**1492**.  See `STAGE_A_REPORT.md`,
 `STAGE_B_REPORT.md`, `STAGE_C_REPORT.md`, `STAGE_D_REPORT.md`,
 `STAGE_E_REPORT.md` and `STAGE_F_REPORT.md` for the exact runs.
 
-All five skips are environmental — "this FFmpeg has every codec, so none can be
-shown missing" and "FFmpeg is installed on this machine" — and each scenario is
-covered by another test that fabricates the missing capability.
+All five skips are environmental ("this FFmpeg has every codec, so none can be
+shown missing", "FFmpeg is installed on this machine", "standard is available on
+this machine", "http/comfyui supports every mode") and each scenario is covered
+by another test that fabricates the missing capability.
 
 Stage E tests render real video with a real FFmpeg and read the results back
 through the probe, so they are slower than the earlier stages but check the

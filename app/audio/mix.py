@@ -148,7 +148,16 @@ def resolve_mix_inputs(audio: Any, *, narration: Sequence[Any], narration_starts
         ))
 
     # -- music beds --------------------------------------------------------
-    duck_amount = float(getattr(audio, "ducking_level", 0.35) or 0.35)
+    # ``ducking_level`` is the music level the user wants to *keep* while the
+    # voice speaks ("Music level while speaking", 35% by default), and the
+    # envelope wants the fraction to *remove*.  Taking the stored value as the
+    # amount removed made a 25% setting duck the music by only 25% instead of
+    # leaving it at 25% - the control did not mean what it said.
+    if ducking is not None and getattr(ducking, "amount", None) is not None:
+        duck_amount = float(ducking.amount)
+    else:
+        kept = float(getattr(audio, "ducking_level", 0.35) or 0.35)
+        duck_amount = max(0.0, min(1.0, 1.0 - kept))
     for bed in getattr(audio, "all_music", lambda: [])() or []:
         if not getattr(bed, "enabled", True):
             continue

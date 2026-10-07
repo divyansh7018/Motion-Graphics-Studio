@@ -225,10 +225,11 @@ def subtitle_build_body(context: JobContext) -> dict:
         folder = Path(output_dir)
         folder.mkdir(parents=True, exist_ok=True)
         stem = context.get("stem") or "subtitles"
-        srt = folder / f"{stem}.srt"
-        vtt = folder / f"{stem}.vtt"
-        write_subtitle_file(srt, to_srt(cues))
-        write_subtitle_file(vtt, to_vtt(cues))
+        # The helper never replaces a caption file that already holds different
+        # text, so the paths it returns are the ones that were really written
+        # (directive sections 12, 36).
+        srt = write_subtitle_file(folder / f"{stem}.srt", to_srt(cues))
+        vtt = write_subtitle_file(folder / f"{stem}.vtt", to_vtt(cues))
         written = [str(srt), str(vtt)]
 
     return {
@@ -456,7 +457,8 @@ def render_plan_body(context: JobContext) -> dict:
     service = RenderService(_tools(context), project_dir=Path(project_dir),
                             paths=context.paths)
     plan = service.plan(project, overrides=context.get("overrides") or None,
-                        two_pass=bool(context.get("two_pass", False)))
+                        two_pass=bool(context.get("two_pass", False)),
+                        include_audio=bool(context.get("include_audio", True)))
     reporter.update(current=1.0, message="Plan ready")
     return {
         "ready": plan.ready,

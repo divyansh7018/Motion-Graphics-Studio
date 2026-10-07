@@ -23,7 +23,7 @@ verification machine, and every claim is labelled with one of:
 | Audio (narration, music, SFX, ducking, fades, master) | **VERIFIED** | Matrix 03-05: 4 narration placements, master mix measured 10.20 s `pcm_s16le` 48 kHz 2 ch, ducked master differs from unducked. 35 tests in `tests/test_audio_service.py`. |
 | Subtitles (generate, SRT, VTT, burn-in, styling) | **VERIFIED** | Matrix 06-08, 11: 4 cues from measured narration, SRT+VTT+ASS written, `SUBTITLE_OVERLAP` caught, burnt-in file differs byte-wise from the plain one. |
 | Timeline (scene/narration/music/SFX/caption timing, transitions) | **VERIFIED** | Matrix 01-02: 0:10.2 over 4 scenes, 0 errors; 4/4 scene lengths from measured narration. `TimelineService` shared by GUI, CLI and engine. |
-| Final render (real MP4) | **VERIFIED** | `docs/evidence/StageE_Test_Video1.mp4` - 1280x720, 30.0 fps, 12.00 s, h264/yuv420p, aac 48 kHz 2 ch, 446,683 bytes. |
+| Final render (real MP4) | **VERIFIED** | `docs/evidence/StageE_Test_Video1.mp4` - 1280x720, 30.0 fps, 12.00 s, h264/yuv420p, aac 48 kHz 2 ch, 446,514 bytes. |
 | FFmpeg | **VERIFIED** | 6.0-static; real encodes in every render above; `libx264`, `libx265`, `libvpx-vp9`, `libaom-av1`, `libass` present. |
 | FFprobe | **VERIFIED** | 6.0-static; matrix 26: `source=ffprobe`, per-stream durations read. Every measurement in this report came from FFprobe, not from the fallback. |
 | Output validation (file, container, streams, size, fps, duration, codec, audio) | **VERIFIED** | Matrix 28: the render's own QC report records **18 checks**, none missing, none unavailable. |
@@ -36,8 +36,8 @@ verification machine, and every claim is labelled with one of:
 | Two-pass encoding | **VERIFIED** | Matrix 31 + engine log: `-pass 1 -passlogfile …/pass_N` then `-pass 2 …` per segment, output valid. Refused up front without a bitrate (matrix 32). |
 | CPU-only path | **VERIFIED** | No GPU present or assumed; every encode above used a CPU encoder. |
 | Long-form (no 30/45/60 s cap) | **LIMITED** | Matrix 24, 35: 50 scenes → 625 s / 18,750 frames / 50 segments planned in 0.13 s, +0.0 MiB. **The full 625 s render was NOT performed.** |
-| Memory / performance | **VERIFIED (measured)** | `scripts/stage_e_profile.py`; peak resident set 138.9 MiB. See §6. |
-| Regression suite (Stages A-E) | **VERIFIED** | **1181 passed, 2 skipped, 0 failed** in 86.7 s. |
+| Memory / performance | **VERIFIED (measured)** | `scripts/stage_e_profile.py`; peak resident set 143.7 MiB. See §6. |
+| Regression suite (Stages A-E) | **VERIFIED** | **1492 passed, 5 skipped, 0 failed** in 101.8 s (2026-10-07). |
 | Manual matrix | **VERIFIED** | **35/35 scenarios passed.** |
 | Documentation | **VERIFIED** | This report plus README, ARCHITECTURE, TESTING, DEVELOPMENT, PROJECT_FORMAT, ROADMAP. |
 | **Kokoro-82M** | **NOT VERIFIED** | Package 0.9.4 installed; **no model weights on this machine**. See §1. |
@@ -236,35 +236,33 @@ the process, measured with `psutil`, at the end of each phase. 1280x720 @ 30 fps
 
 | Phase | RSS (MiB) | Change | Peak | Note |
 | --- | --- | --- | --- | --- |
-| start | 13.8 | +0.0 | 13.8 | bare interpreter |
-| import | 22.9 | +9.1 | 22.9 | app modules, no Qt yet |
-| tools | 22.9 | +0.0 | 22.9 | FFmpeg/FFprobe probed |
-| qt | 49.3 | +26.4 | 49.3 | `QApplication` |
-| gui | 111.2 | +61.8 | 111.2 | `MainWindow` built and shown |
-| project | 111.6 | +0.4 | 111.6 | project created |
-| scenes | 111.6 | +0.0 | 111.6 | 4 scenes added and saved |
-| load | 111.6 | +0.0 | 111.6 | reopened from disk |
-| preview | 117.4 | +5.9 | 134.8 | 180 raw frames produced |
-| plan | 118.0 | +0.5 | 134.8 | 50 scenes / 625 s / 18,750 frames |
-| render | 118.0 | +0.1 | 138.9 | real render, COMPLETED, QC PASS |
-| done | 118.0 | +0.0 | 138.9 | end |
+| start | 13.6 | +0.0 | 13.6 | bare interpreter |
+| import | 22.8 | +9.2 | 22.8 | app modules, no Qt yet |
+| tools | 22.8 | +0.0 | 22.8 | FFmpeg/FFprobe probed |
+| qt | 49.3 | +26.5 | 49.3 | `QApplication` |
+| gui | 116.3 | +67.0 | 116.3 | `MainWindow` built and shown |
+| project | 116.3 | +0.0 | 116.3 | project created |
+| scenes | 116.3 | +0.0 | 116.3 | 4 scenes added and saved |
+| load | 116.6 | +0.3 | 116.6 | reopened from disk |
+| preview | 122.2 | +5.7 | 139.6 | 180 raw frames produced |
+| plan | 122.7 | +0.5 | 139.6 | 50 scenes / 625 s / 18,750 frames in 0.13 s |
+| render | 122.8 | +0.0 | 143.7 | real render, COMPLETED in 7.5 s, QC PASS |
+| done | 122.8 | +0.0 | 143.7 | end |
 
-**Highest resident set seen: 138.9 MiB.**
+**Highest resident set seen: 143.7 MiB.**
 
 What the numbers actually show:
 
-* The GUI is the largest single cost (+61.8 MiB), not the render.
-* Preview memory **peaks and falls back** (134.8 → 117.4): frames are streamed
+* The GUI is the largest single cost (+67.0 MiB), not the render.
+* Preview memory **peaks and falls back** (139.6 → 122.2): frames are streamed
   to the encoder, never accumulated.
 * Planning a 625-second timeline adds **+0.5 MiB**. Timeline length is not a
   memory variable.
-* A real render adds **+0.1 MiB** of resident memory in the Python process; the
+* A real render adds **+0.0 MiB** of resident memory in the Python process; the
   encoder runs in a child FFmpeg process.
 
 This is one measurement on one machine (2 CPU, 3.8 GB RAM reported). It is
 evidence, not a guarantee for another machine.
-
----
 
 ## 7. The QC contract
 
@@ -306,6 +304,9 @@ file rather than leaving a broken take behind.
 ## 8. Bugs found and fixed by this hardening pass
 
 These were found *after* the suite was green, which is the point of the pass.
+Nine of them are real defects in the application (8.1, 8.2, 8.3, 8.8, 8.9,
+8.10, 8.11, 8.12, 8.13); 8.4 and 8.5 are contract gaps, and 8.6 was a test
+that checked the wrong thing.
 
 ### 8.1 A dead A/V sync check (real bug)
 
@@ -378,6 +379,97 @@ The committed evidence files were produced with a different FFmpeg
 FFmpeg 6.0-static + FFprobe 6.0-static and the current code. Old files were
 replaced, not kept alongside.
 
+### 8.8 Ducking removed the wrong amount (real bug)
+
+`app/audio/mix.py` fed `audio.ducking_level` - the music level the user *keeps*,
+default 0.35 - into a filter whose parameter is the fraction *removed*, so a
+setting of "25 % while speaking" ducked the bed by 25 % instead of leaving 25 %.
+The control understated its own effect. Fixed by deriving the removed fraction:
+`ducking.amount` when `DuckingSettings` supplies one, otherwise
+`1.0 - ducking_level`, clamped to 0..1.
+
+Measured (2 x 2.0 s scenes, silence narration so only the bed is measured, 25 %
+kept level, 0.05 s attack/release, normalisation off):
+
+```
+before the fix   ducked -27.5 dB   flat -25.0 dB   ->  2.5 dB, barely audible
+after  the fix   ducked            ~12 dB below flat inside a window,
+                 recovering to within 1 dB of flat between scenes
+filter chain     volume=volume='0.9*(1-0.25*(...))':eval=frame
+```
+
+Regression test: `test_ducking_lowers_the_music_while_the_narration_speaks`
+(`tests/test_hardening_audio_captions.py`).
+
+### 8.9 A cancelled job left its child process running (real bug)
+
+Two faults in the same path:
+
+* `app/image/backends/base.py` called `cancel.register(process)` /
+  `cancel.unregister(process)`, but `CancelToken` names those methods
+  `register_process` / `unregister_process`. The lookup failed silently, so no
+  child was ever tracked. Cancelling a generation marked the job cancelled
+  *after the child had already finished*, leaving a model running for as long as
+  it liked in the background.
+* `CancelToken.cancel()` only set a flag. Nothing stopped the work that was
+  already running.
+
+Fixed: both spellings are accepted (and `CancelToken` now exposes the short names
+as aliases, so neither name can silently do nothing again), and `cancel()`
+terminates the children it is tracking immediately - from the calling thread,
+without blocking it, with a short-lived watchdog thread forcing anything that
+ignores the request. Regression tests:
+`test_a_cancelled_generation_stops_the_child_process`,
+`test_a_cancelled_render_stops_its_child_processes`.
+
+### 8.10 Caption files were written in place, and could be replaced
+
+`write_subtitle_file` wrote directly to the target path, so a crash during the
+write left a truncated `.srt`, and an export over an existing file replaced a
+caption file the user may have hand-edited. It now writes through
+`atomic_write_text`, and when the target exists with *different* text it writes
+the next free name instead and returns the path it really used. This
+application's own derived files - the captions a render regenerates into its
+private work folder - pass `overwrite=True`. Regression tests:
+`test_a_caption_file_is_written_atomically`,
+`test_exporting_the_same_captions_twice_does_not_litter_or_replace`.
+
+### 8.11 Output numbering counted files that were not this project's takes
+
+The next take number was read from the trailing digits of every file in the
+output folder, so one unrelated `Holiday 2024.mp4` beside the project made the
+first take `Project_Video2024.mp4`. The scan now recognises only names that
+match the project's own template (`name_skeleton` / `sequence_from_template`,
+anchored on `{seq}`) rather than any trailing number. Regression tests:
+`test_the_render_output_only_ever_gains_files`,
+`test_an_unrelated_file_in_the_output_folder_does_not_derail_the_naming`,
+`tests/test_hardening_render_chain.py::test_three_generate_clicks_make_exactly_project_video_1_2_3`.
+
+### 8.12 An audio check that could not run blocked silent exports (real bug)
+
+`AudioService.validate` ran `probe_media` on every narration file and raised
+`NARRATION_UNREADABLE` - an error - when the probe failed. Without FFmpeg
+available the probe fails for *every* file, so a project with valid narration was
+reported as broken over something that was never inspected. Two changes:
+
+* a check that cannot run is not reported as a failure: the narration
+  readability pass is skipped entirely when there is no FFmpeg to inspect with
+  (directive section 8);
+* `include_audio=False` demotes every audio finding to a warning with the reason
+  stated ("The export has audio turned off, so the video will have no sound."),
+  so an intentionally silent export is not blocked by audio (directive 12).
+
+Regression tests: `tests/test_audio_service.py::test_a_present_narration_passes`,
+`test_rendering_with_no_audio_at_all_still_works`.
+
+### 8.13 "Create variation" raised an AttributeError (real bug, Stage F)
+
+`ImageService.variant_of` built a request with `GenerationMode.IMG2IMG`, which
+does not exist - the constant is `GenerationMode.IMAGE_TO_IMAGE`. The variation
+button in Image Studio would have raised rather than generating. Fixed;
+regression test `test_a_chain_of_variations_keeps_its_lineage_after_a_restart`
+(`tests/test_hardening_image_jobs.py`).
+
 ---
 
 ## 9. The blackdetect correction (retained)
@@ -409,22 +501,34 @@ All QC evidence in this report post-dates the correction.
 ## 10. Test results
 
 ```
-1181 passed, 2 skipped, 0 failed in 86.71s
+1492 passed, 5 skipped, 0 failed in 101.75s
 ```
 
-* Previous baseline before Stage E: **830 tests**. Stage E total: **1181**.
-* New in this hardening pass: **20 tests** in `tests/test_stage_e_hardening.py`
-  (FFprobe detection/use/fallback, QC contract, A/V alignment, codec
-  verification, two-pass, and the three regressions above).
+* Stated baseline before Stage E: **830**. Actual suite today: **1497 collected**,
+  **1492 passed, 5 skipped, 0 failed**.
+* Stage E added `tests/test_stage_e_hardening.py` (**20 tests**: FFprobe
+  detection/use/fallback, QC contract, A/V alignment, codec verification,
+  two-pass, and the regressions in §8).
+* Cross-stage hardening modules added in this pass:
+
+| Module | Tests | What it covers |
+| --- | --- | --- |
+| `tests/test_hardening_render_chain.py` | 21 | plan → argv → real file → FFprobe; numbering; atomic caption writes; resolutions; quality. |
+| `tests/test_hardening_audio_captions.py` | 21 | master mix placement, fades/trim/gain, ducking, normalisation, QC silence, broken narration, caption provenance, cue editing, timeline edge cases. |
+| `tests/test_hardening_image_jobs.py` | 40 | Stage F image contract, command adapter, batches, cancellation, library/history, device probe. |
+
 * `ruff check app tests scripts installer --select F,E9` → **All checks passed!**
 
-The 2 skips are environmental, and both scenarios are covered by other tests
-that fabricate the missing capability:
+The 5 skips are environmental, and each scenario is covered by another test
+that fabricates the missing capability:
 
 | Skip | Reason |
 | --- | --- |
 | `test_render_engine.py:312` | "this FFmpeg has every codec, so none can be shown missing" |
 | `test_system_check.py:71` | "FFmpeg is installed on this machine" |
+| `test_image_backends.py:100` | "standard is available on this machine" |
+| `test_image_backends.py:117` | "http supports every mode" |
+| `test_image_backends.py:117` | "comfyui supports every mode" |
 
 ---
 
@@ -441,7 +545,7 @@ that fabricate the missing capability:
 06 Captions generated from narration: 4 cue(s), timing source 'narration'
 07 SRT, VTT and ASS are written
 08 Overlapping captions are caught: reported SUBTITLE_OVERLAP
-09 First render completes: 1280x720 @ 30.0 fps, 10.20s, h264/aac, 386,862 bytes
+09 First render completes: 1280x720 @ 30.0 fps, 10.20s, h264/aac, 386,612 bytes
 10 QC measures the finished file: QC PASS
 11 Burnt-in captions are drawn in: the burnt-in file differs from the plain one
 12 Second render does not touch the first
@@ -489,18 +593,19 @@ Synthetic audio is never presented as Kokoro output.
 | Duration | 12.00 s (timeline 12.00 s) | 12.00 s |
 | Video codec | h264 / yuv420p | h264 / yuv420p |
 | Audio | aac, 48000 Hz, 2 ch | aac, 48000 Hz, 2 ch |
-| Size | 446,683 bytes | 446,683 bytes |
-| md5 | `fbc999135ee51c637a1f6152ef37f301` | `fbc999135ee51c637a1f6152ef37f301` |
+| Size | 446,514 bytes | 446,514 bytes |
+| md5 | `a9741295ee358446fc192be1535087cb` | `a9741295ee358446fc192be1535087cb` |
 | QC | **PASS** | **PASS** |
 
 * Video1 was **not** modified by the second render (md5 compared before and
   after); Video2 is an independent file.
-* 5 subtitle cues, 7 segments, 360 frames; renders took 16.6 s and 16.5 s.
+* 5 subtitle cues, 7 segments, 360 frames; renders took 13.4 s and 13.7 s
+  (2026-10-07 run, FFmpeg/FFprobe 6.0-static).
 * The two files are byte-identical because the same content encoded with the
   same deterministic settings produces the same output - not because one was
   copied.
-* Also in `docs/evidence/`: `StageE_Matrix_1.mp4` (386,862 bytes,
-  md5 `4a88eea1569f96ffdf9f6ff75bcf250f`) and `subtitles.{srt,vtt,ass}`.
+* Also in `docs/evidence/`: `StageE_Matrix_1.mp4` (386,612 bytes,
+  md5 `f5bdc0824042ac73b8668b90cc338313`) and `subtitles.{srt,vtt,ass}`.
 
 ### Output numbering
 
@@ -550,10 +655,12 @@ Disclosed rather than hidden:
 6. **No word-level / karaoke caption timing.** Cue timing comes from measured
    narration lengths and the scene timeline. Nothing claims per-word accuracy,
    because no reliable word timing exists in this pipeline.
-7. **2 skips** remain, both environmental (a full FFmpeg build and an installed
-   FFmpeg make two "missing tool" scenarios impossible to construct here).
+7. **5 skips** remain, all environmental: this FFmpeg has every codec, FFmpeg is
+   installed, the standard backend is available, and `http`/`comfyui` advertise
+   every mode - each "missing capability" scenario is covered by another test
+   that fabricates the missing capability.
 8. **Memory figures are one machine, one run.** 2 CPU, ~3.8 GB RAM reported.
-   Peak 138.9 MiB is a measurement, not a promise.
+   Peak 143.7 MiB is a measurement, not a promise.
 
 ---
 
@@ -576,7 +683,7 @@ Mandatory release criteria:
 | Quality settings | VERIFIED |
 | Multiple resolutions | VERIFIED |
 | CPU-only path | VERIFIED |
-| Regression suite | VERIFIED (1181 passed, 0 failed) |
+| Regression suite | VERIFIED (1492 passed, 5 skipped, 0 failed) |
 | Manual matrix | VERIFIED (35/35) |
 | Documentation | VERIFIED |
 

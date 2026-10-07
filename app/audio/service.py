@@ -188,12 +188,22 @@ class AudioService:
 
     # -- validation --------------------------------------------------------
 
-    def validate(self, project: Any, timeline: Any) -> AudioValidation:
+    def _can_probe(self) -> bool:
+        """True when there is an FFmpeg to inspect files with."""
+        return self.tools is not None and bool(
+            getattr(getattr(self.tools, "discovery", None), "has_ffmpeg", False))
+
+    def validate(self, project: Any, timeline: Any, *, include_audio: bool = True) -> AudioValidation:
         """Check the audio setup without rendering anything.
 
         This is what stops a render before it wastes time: a stale narration, a
         missing music file or an effect anchored to a deleted scene are all
         reported here, with what to do about each.
+
+        ``include_audio=False`` means the user asked for a silent export.  The
+        same problems are still reported, but as **warnings**: an export with no
+        audio track cannot be wrong because of audio, and blocking it would be
+        the application refusing a legitimate request (directive sections 3, 12).
         """
         audio = getattr(project, "audio", None)
         result = AudioValidation()
@@ -263,6 +273,41 @@ class AudioService:
             project_duration=project_duration,
         )
         result.issues.extend(issues)
+
+        # A file that cannot be decoded is reported here rather than half way
+        # through a mix: FFmpeg would fail with a message about a filter graph,
+        # which tells the user nothing about *their* broken narration file.
+        #
+        # This needs FFmpeg to inspect the file at all.  Without it the check
+        # cannot run, and a check that cannot run must never be reported as a
+        # failure - that would block a render over something that was never
+        # examined (directive sections 8, 9).
+        if self._can_probe():
+            for placement in placements:
+                if placement.path is None:
+                    continue
+                info = probe_media(placement.path, self.tools)
+                if not info.ok or not info.has_audio:
+                    result.issues.append(AudioIssue(
+                        "NARRATION_UNREADABLE",
+                        f"The narration for '{placement.scene_name or placement.scene_id}' "
+                        f"is not readable as audio"
+                        f" ({info.error or 'no audio stream found'}).",
+                        "Generate the narration again, or replace that file with a "
+                        "readable recording.",
+                        severity="error",
+                    ))
+
+        if not include_audio:
+            # The export has no audio track, so nothing here can spoil the file.
+            # The findings are kept - the user still needs to know - but they
+            # cannot block a silent render.
+            for issue in result.issues:
+                issue.severity = "warning"
+                if "audio is turned off" not in issue.message:
+                    issue.message = (f"{issue.message} The export has audio turned off, "
+                                     f"so the video will have no sound.")
+            return result
         return result
 
     # -- ducking -----------------------------------------------------------

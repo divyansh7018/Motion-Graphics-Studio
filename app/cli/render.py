@@ -297,6 +297,14 @@ def command_audio_mix(args, paths: AppPaths, settings: Settings) -> int:
     project = service.current
     timeline = build_timeline(project.scenes)
     output = Path(args.output) if args.output else project_dir / "audio_preview.wav"
+    if args.output and output.exists():
+        from ..core.paths import unique_path
+
+        kept = output
+        output = unique_path(output.parent, output.stem, output.suffix)
+        print(f"Kept      : {kept.name} (already exists)")
+        print(f"There is already a file called '{kept.name}', so the mix is written to "
+              f"'{output.name}' instead.")
 
     print(f"Mixing to {output} ...")
     result = audio.render_master(project, timeline, output)

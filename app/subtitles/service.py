@@ -19,7 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
+from ..core.atomicio import atomic_write_text
+from ..core.logging_setup import get_logger, log_event
+from ..core.paths import unique_path
 from ..project.model import SubtitleCue, SubtitleSpec, new_id
+
+LOGGER = get_logger("subtitles")
 
 __all__ = [
     "SubtitleIssue",
@@ -434,6 +439,16 @@ def validate_cues(cues: Sequence[SubtitleCue], *, canvas: Any, style: Any,
                 "Shorten one caption, or move the other later.",
             ))
     for cue in cues:
+        if float(cue.start) < 0.0:
+            # Nothing can be shown before the video starts.  The writers clamp the
+            # timecode to zero, so the exported file is valid - but the caption is
+            # then somewhere the user did not put it, which is worth an error.
+            issues.append(SubtitleIssue(
+                "SUBTITLE_NEGATIVE_START",
+                f"A caption starts at {cue.start:.2f}s, before the video begins.",
+                "Set its start time to 0 or later so it matches where it will appear.",
+                severity="error",
+            ))
         if not str(cue.text or "").strip():
             issues.append(SubtitleIssue(
                 "SUBTITLE_EMPTY",
@@ -492,11 +507,40 @@ def validate_cues(cues: Sequence[SubtitleCue], *, canvas: Any, style: Any,
     return issues
 
 
-def write_subtitle_file(path: Any, content: str) -> Path:
-    """Write a subtitle file, creating the folder if needed."""
+def write_subtitle_file(path: Any, content: str, *, overwrite: bool = False) -> Path:
+    """Write a caption file without destroying one that is already there.
+
+    The return value is the path that was actually written, which is not always
+    the path that was asked for: exporting twice must never silently replace a
+    caption file the user has edited by hand (directive sections 12, 36, 44).
+
+    * the file does not exist -> written, path returned unchanged;
+    * the file exists and already holds exactly this text -> left alone, so a
+      repeated export does not scatter copies;
+    * the file exists with *different* text -> the next free name is used and
+      the existing file is kept.  The caller sees the real path back.
+
+    ``overwrite=True`` is for this application's own derived files - the captions
+    a render writes into its private work folder.  Those are regenerated from the
+    project on every run, so replacing them is correct.
+
+    The write itself goes through :func:`atomic_write_text`, so a crash while
+    writing cannot leave a half-finished caption file behind.
+    """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    if target.exists() and not overwrite:
+        try:
+            existing = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            existing = None
+        if existing == content:
+            return target
+        kept = target
+        target = unique_path(target.parent, target.stem, target.suffix)
+        log_event("SUBTITLE_EXPORT_KEPT", f"Kept the existing {kept.name}",
+                  logger=LOGGER, path=str(kept), written=str(target))
+    atomic_write_text(target, content)
     return target
 
 
@@ -633,15 +677,14 @@ class SubtitleService:
         for name in formats:
             target = folder / f"{stem}.{name}"
             if name == "srt":
-                write_subtitle_file(target, to_srt(cues))
+                written[name] = str(write_subtitle_file(target, to_srt(cues)))
             elif name == "vtt":
-                write_subtitle_file(target, to_vtt(cues))
+                written[name] = str(write_subtitle_file(target, to_vtt(cues)))
             elif name == "ass":
                 written[name] = str(self.export_ass(project, target))
                 continue
             else:
                 continue
-            written[name] = str(target)
         return written
 
     def export_ass(self, project: Any, target: Any) -> Path:

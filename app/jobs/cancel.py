@@ -56,6 +56,11 @@ class CancelToken:
             return
         self._cancelled_at = time.time()
         self._event.set()
+        # Stop the work that is already running.  A cancel that only sets a flag
+        # leaves a generation or an encode running in the background - the user
+        # pressed Cancel and their CPU (or GPU) is still busy.  This is
+        # deliberately non-blocking: cancel() is often called from the UI thread.
+        self.stop_children()
         callbacks = list(self._on_cancel)
         for callback in callbacks:
             try:
@@ -102,6 +107,11 @@ class CancelToken:
             if process in self._processes:
                 self._processes.remove(process)
 
+    #: Aliases, so a caller written against the shorter names still tracks its
+    #: children instead of silently leaving them running.
+    register = register_process
+    unregister = unregister_process
+
     def active_process_count(self) -> int:
         with self._lock:
             return len(self._processes)
@@ -115,6 +125,49 @@ class CancelToken:
             if self.terminate_process(process, grace_seconds=grace_seconds):
                 stopped += 1
         return stopped
+
+    def stop_children(self, grace_seconds: float = 5.0) -> int:
+        """Ask every registered child to stop now, without blocking the caller.
+
+        Each child gets a terminate request immediately.  A short-lived watchdog
+        thread forces the ones that ignore it, so the thread that asked for the
+        cancel (very often the UI thread) never waits for a process to die.
+        """
+        with self._lock:
+            processes = [process for process in self._processes]
+        asked = 0
+        for process in processes:
+            if process.poll() is not None:
+                continue
+            try:
+                process.terminate()
+                asked += 1
+            except OSError:
+                continue
+        if asked:
+            watchdog = threading.Thread(
+                target=self._force_stop, args=(processes, float(grace_seconds)),
+                name="mgs-cancel-watchdog", daemon=True)
+            watchdog.start()
+        return asked
+
+    @staticmethod
+    def _force_stop(processes: list, grace_seconds: float) -> None:
+        """Kill anything that is still alive after the grace period."""
+        deadline = time.time() + max(0.0, grace_seconds)
+        for process in list(processes):
+            remaining = max(0.0, deadline - time.time())
+            try:
+                process.wait(timeout=remaining)
+                continue
+            except Exception:  # noqa: BLE001 - already gone, or timed out
+                pass
+            try:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5.0)
+            except Exception:  # noqa: BLE001 - best effort; the OS reaps it
+                pass
 
     @staticmethod
     def terminate_process(process: subprocess.Popen, grace_seconds: float = 5.0) -> bool:

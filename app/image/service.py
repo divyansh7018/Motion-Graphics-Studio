@@ -340,7 +340,8 @@ class ImageService:
         with Image.open(source_path) as handle:
             width, height = handle.size
         return GenerationRequest(
-            mode=GenerationMode.IMG2IMG, prompt="", source_image=str(source_path),
+            mode=GenerationMode.IMAGE_TO_IMAGE, prompt="",
+            source_image=str(source_path),
             width=width, height=height, backend="standard", model="standard",
             name_stem=f"{source_path.stem}_variation", strength=0.35,
             output_format="png", collection=collection,
