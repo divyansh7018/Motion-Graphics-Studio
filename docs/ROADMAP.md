@@ -259,6 +259,54 @@ because it imported torch to ask whether a GPU existed - and then reported
 "torch: not installed" when it was installed with no accelerator.  Detection now
 costs **2 ms and +0.0 MiB**, and the deep probe tells the truth.
 
+## Stage G — local AI generation studio and AI backend orchestration (implemented; gate NOT signed off)
+
+See ``docs/STAGE_G_REPORT.md`` for the full evidence.  Highlights:
+
+* **One backend hierarchy** for images and video (``app/ai/backend.py``,
+  ``app/ai/registry.py``): id, kind, version, capabilities, state, device
+  requirement, settings schema, licence.  Local Python, local CLI, local HTTP,
+  ComfyUI, Diffusers, ONNX and an architecture-only cloud adapter.
+* **Light check vs deep check.**  A light check reads metadata; only a deep check
+  that really initialised a backend and produced a file may say ``VERIFIED``.
+  Detection on the build machine costs **6 ms and +0.3 MiB**.
+* **A real queue** (``app/ai/jobs.py``): eight states, progress, elapsed, ETA,
+  cancel, retry with a visible chain, duplicate refusal by name, nothing hidden.
+* **Retry that is a retry.**  It replays the recorded request - same backend,
+  model, seed, size and mode - and refuses with the reason when the backend or
+  model is gone.  A finished job is not re-run into a duplicate.
+* **Five video modes** (text/image/video/extend/storyboard) with per-clip
+  metadata, variations and extension that never touch the original, and a
+  validation pass that reads every finished clip back before calling it a result.
+* **A video library** (``app/ai/video_library.py``): an index with a probe cache
+  keyed to the file, thumbnails with real FFmpeg, search/sort/filter/paging,
+  missing-file marking, and clips from a render recorded as renders.
+* **Clips are ordinary assets**: Send to project, Send to scene and Send to
+  timeline write real project data, so a generated clip is not an island.
+* **Nothing is faked.**  No model installed means ``NOT INSTALLED``, no file and
+  no placeholder; the built-in writers are labelled ``TEST BACKEND`` everywhere;
+  standard resize is never called AI.
+
+### Why the gate is not signed off
+
+* **No AI model is installed on the verification machine**, so
+  ``REAL AI MODEL VERIFICATION: PENDING``.  The contracts, detection, refusals,
+  queue, validation, library and project integration are verified; real inference
+  is not.
+* **In-application video playback is NOT VERIFIED here** (QtMultimedia is not
+  available in the build environment).
+* **Windows remains NOT VERIFIED** (carried from Stage E).
+* **Kokoro remains NOT VERIFIED - TEST FALLBACK USED** (carried from Stage E).
+
+### The bugs that mattered most
+
+Nine real defects were found and fixed by this stage, each with a regression
+test: warning logs that raised instead of warning, a tool object passed to the OS
+as a program, clips labelled broken on a machine without FFprobe, a rescan that
+wiped a real verdict, an import failure that said nothing, a test-backend clip
+that could claim an AI model, and a Retry button that could never retry.  They are
+listed in ``docs/STAGE_G_REPORT.md`` §3.
+
 ## Later stages (summary)
 
 Stage F built the image side of the application.  Stage E pulled forward most of
@@ -269,7 +317,7 @@ files, post-render validation, black-frame and silent-audio detection and
 PASS/WARNING/FAIL reporting all exist now. What is left for F and G is listed
 below; neither is complete.
 
-**F — Rendering.** Streaming frames to FFmpeg, real narration durations as the
+**F — Rendering** *(delivered; see the Stage F report)*. Streaming frames to FFmpeg, real narration durations as the
 authority for timing, configured padding, memory-bounded rendering, cancellation
 that terminates FFmpeg, no hidden retries.
 

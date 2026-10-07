@@ -60,6 +60,8 @@ from .views.project_settings import ProjectSettingsPage
 from .views.audio_view import AudioPage
 from .views.narration_view import NarrationPage
 from .views.render_view import RenderPage
+from .views.ai_studio_view import AIStudioPage
+from .views.video_library_view import VideoLibraryPage
 from .views.image_studio_view import ImageStudioPage
 from .views.subtitles_view import SubtitlesPage
 from .views.timeline_view import TimelinePage
@@ -82,17 +84,16 @@ PAGES: tuple[tuple[str, str, str, str], ...] = (
     ("audio", "Audio", "Create", "ready"),
     ("subtitles", "Subtitles", "Create", "ready"),
     ("images", "Image Studio", "Create", "ready"),
+    ("ai", "AI Studio", "Create", "ready"),
     ("timeline", "Timeline", "Produce", "ready"),
+    ("videos", "Video library", "Produce", "ready"),
     ("render", "Render", "Produce", "ready"),
     ("project_settings", "Project settings", "Create", "ready"),
     ("projects", "Projects", "Create", "ready"),
     ("system_check", "System check", "Start", "ready"),
 )
 
-FUTURE_PAGES: tuple[tuple[str, str, str], ...] = (
-    # (label, section, stage note)  - only pages that genuinely are not built.
-    ("Video library", "Produce", "Stage G - output"),
-)
+FUTURE_PAGES: tuple[tuple[str, str, str], ...] = ()
 
 SETTINGS_PAGES: tuple[tuple[str, str, str, str], ...] = (
     ("settings", "Settings", "Application", "ready"),
@@ -243,7 +244,9 @@ class MainWindow(QMainWindow):
         self.audio_page = AudioPage(self.context)
         self.subtitles_page = SubtitlesPage(self.context)
         self.image_studio_page = ImageStudioPage(self.context)
+        self.ai_studio_page = AIStudioPage(self.context)
         self.timeline_page = TimelinePage(self.context)
+        self.video_library_page = VideoLibraryPage(self.context)
         self.render_page = RenderPage(self.context)
         self.project_settings_page = ProjectSettingsPage(self.context)
         self.projects_page = ProjectBrowserPage(self.context)
@@ -261,7 +264,9 @@ class MainWindow(QMainWindow):
             "audio": self.audio_page,
             "subtitles": self.subtitles_page,
             "images": self.image_studio_page,
+            "ai": self.ai_studio_page,
             "timeline": self.timeline_page,
+            "videos": self.video_library_page,
             "render": self.render_page,
             "project_settings": self.project_settings_page,
             "projects": self.projects_page,
@@ -523,7 +528,7 @@ class MainWindow(QMainWindow):
         # The Stage E pages edit the project directly, so each one reports the
         # change and the window decides what "dirty" means.
         for page in (self.audio_page, self.subtitles_page, self.timeline_page,
-                     self.render_page):
+                     self.video_library_page, self.render_page):
             page.project_changed.connect(self._on_project_edited)
         self.render_page.render_completed.connect(self._on_render_completed)
 
@@ -653,6 +658,7 @@ class MainWindow(QMainWindow):
         self.audio_page.refresh()
         self.subtitles_page.refresh()
         self.timeline_page.refresh()
+        self.video_library_page.refresh()
         self.render_page.refresh()
         self.welcome_page.refresh()
         self._refresh_recent_menu()
@@ -660,15 +666,24 @@ class MainWindow(QMainWindow):
         self._update_project_actions()
 
     def _on_render_completed(self, path: str) -> None:
-        """A render finished: say so, and offer the file."""
+        """A render finished: say so, and index it as an output in the library.
+
+        The render stays in the output folder where it has always gone - the
+        library is an index, not a second home - so a finished render can be
+        sent back into a project without being copied anywhere (section 30).
+        """
         self._show_status_message(f"Render finished: {path}", 10000)
         self.context.notify(f"Render finished: {path}", 10000)
+        page = self.video_library_page
+        if path and page.library() is not None:
+            page.import_clip(str(path), source="render")
 
     def _on_project_closed(self) -> None:
         self.project_page.refresh()
         self.audio_page.refresh()
         self.subtitles_page.refresh()
         self.timeline_page.refresh()
+        self.video_library_page.refresh()
         self.render_page.refresh()
         self.project_settings_page.refresh()
         self.welcome_page.refresh()

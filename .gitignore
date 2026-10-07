@@ -51,3 +51,7 @@ desktop.ini
 .coverage
 .coverage.*
 htmlcov/
+
+# Runtime image library written by a run that used the source folder as its
+# data root (docs/IMAGE_STUDIO.md §8 explains the real location).
+/images/

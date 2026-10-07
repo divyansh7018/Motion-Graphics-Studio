@@ -700,15 +700,22 @@ class ProjectService:
         return True
 
     def update_scene_field(self, scene_id: str, **fields) -> bool:
-        """Change scalar scene fields (name/type/duration/background/notes/script).
+        """Change a scene's own fields (name/type/duration/background/notes/script).
 
-        Used by the inspector; every change is a single undoable edit so the
-        property panel honours undo/redo (directive section 40).
+        Used by the inspector, and by the AI Studio when a generated clip
+        becomes a scene; every change is a single undoable edit so the property
+        panel honours undo/redo (directive section 40).
+
+        ``extra`` is included so a scene can carry its own metadata - a video
+        scene records the clip it plays there - rather than the caller having to
+        reach into the model.  A field that is not listed is still ignored, and
+        the caller is told by the return value.
         """
         session = self._require_session()
         if session.project.scene_by_id(scene_id) is None:
             return False
-        allowed = {"name", "type", "duration", "background", "notes", "script"}
+        allowed = {"name", "type", "duration", "background", "notes", "script",
+                   "extra"}
         clean = {k: v for k, v in fields.items() if k in allowed}
         if not clean:
             return False

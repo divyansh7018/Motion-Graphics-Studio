@@ -225,6 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser = subparsers.add_parser("smoke-test", help="Run the built-in end-to-end smoke test.")
     smoke_parser.set_defaults(func=command_smoke_test)
 
+    from .ai import build_ai_parser
     from .image import build_image_parser
     from .project import build_project_parser
     from .render import build_audio_parser, build_render_parser, build_subtitle_parser
@@ -238,6 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_audio_parser(subparsers)
     build_subtitle_parser(subparsers)
     build_image_parser(subparsers)
+    build_ai_parser(subparsers)
 
     gui_parser = subparsers.add_parser("gui", help="Start the graphical application.")
     gui_parser.set_defaults(func=command_gui)
@@ -265,6 +267,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return _dispatch_voice(args)
         if getattr(args, "command", None) == "image":
             return _dispatch_image(args)
+        if getattr(args, "command", None) == "ai":
+            return _dispatch_ai(args)
         return int(args.func(args))
     except PathResolutionError as exc:
         print(f"The application folders could not be prepared:\n{exc}")
@@ -337,6 +341,20 @@ def _dispatch_image(args) -> int:
     if getattr(args, "image_command", None):
         _print_header(paths)
     return run_image_command(args, paths, load_result.settings)
+
+
+def _dispatch_ai(args) -> int:
+    """Run an ``ai`` subcommand against a bootstrapped application.
+
+    The AI Studio works with no model installed - every command reports what is
+    and is not available rather than refusing to run.
+    """
+    from .ai import run_ai_command
+
+    paths, load_result = _bootstrap(args)
+    if getattr(args, "ai_command", None):
+        _print_header(paths)
+    return run_ai_command(args, paths, load_result.settings)
 
 
 def _dispatch_voice(args) -> int:

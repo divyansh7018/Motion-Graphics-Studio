@@ -208,6 +208,44 @@ Detection deliberately loads nothing, and does not import torch (which costs
 about 500 MB of memory to answer "is there a GPU?"). `detect_device(deep=True)`
 is the opt-in path.
 
+### 3b. The AI layer
+
+Stage G put every generator - images and video - behind one hierarchy, so the
+pages, the queue, the history, the CLI and the tests speak about them the same
+way.  `app/image/` and `app/ai/video_backends/` remain the implementations; the
+unified layer is what decides, records and refuses.
+
+```
+AI Studio page / Video library page / CLI
+        |
+   AIService  ------>  AIBackendManager  ------>  backend adapter
+        |                     |                        |
+   history, library,     models, states,          a local model,
+   references, prompts   settings schemas          a program, a local
+        |                                           server, or a fixture
+   AIJobRegistry  ------>  Qt JobManager (the one queue for everything)
+```
+
+Four rules hold it together:
+
+* **A capability is a promise, and nothing beyond it is believed.**  An operation
+  a backend does not report is disabled in the interface and refused before
+  anything runs, with a suggestion.
+* **Only a deep check may claim VERIFIED.**  A light check reads metadata; a deep
+  check initialises the backend and produces a real file.
+* **Every result is validated before it is called a result.**  A written clip is
+  read back and measured (exists, non-zero, readable, dimensions, duration, fps,
+  codec); a mismatch between the request and the file is recorded and shown, and
+  the file is still the file.
+* **A clip is an asset, not an island.**  Generated clips are indexed in the
+  Video library with their provenance and go into projects, scenes and the
+  timeline through the same asset path Stage F built, so nothing downstream needs
+  to know that "AI" produced them.
+
+Detection costs microseconds because it asks the operating system questions
+instead of loading anything: on the Stage G build machine the whole pass is
+**6 ms and +0.3 MiB** (`docs/STAGE_G_REPORT.md`).
+
 ## 4. The job system
 
 The job system is the backbone of the application's responsiveness.

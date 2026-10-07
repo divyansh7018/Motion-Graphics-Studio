@@ -5,19 +5,29 @@ voice → images → scenes → timeline → audio → preview → MP4, all on o
 No account, no cloud, no subscription, no internet connection required for any
 core function.
 
-**Build stage: F — Image Studio, local image generation, editing and asset
-integration.** This build adds a local image studio: create or import pictures,
-edit them non-destructively, generate with a local backend if one is installed,
-organise them in a paged library, and send them into a project or a scene. It
-keeps the Stage A shell, the Stage B project system, the Stage C script + Kokoro
-narration, the Stage D scene engine and the Stage E audio/subtitle/timeline/render
-pipeline intact.
+**Build stage: G — local AI generation studio and AI backend orchestration.**
+This build adds the video half of the AI Studio and puts every backend behind one
+manager: a generation queue that can cancel and retry, five ways to make a clip
+(text → video, image → video, video → video, extend, storyboard → video), a video
+library that indexes, measures, searches and pictures every clip the studio
+knows, and an honest backend/model layer that says NOT INSTALLED rather than
+inventing a result. It keeps the Stage A shell, the Stage B project system, the
+Stage C script + Kokoro narration, the Stage D scene engine, the Stage E
+audio/subtitle/timeline/render pipeline and the Stage F Image Studio intact.
 
 > **Image Studio works with no image model installed.** Importing, editing,
 > upscaling, masking, organising and sending to a scene need none, and a prompt
 > with no model is refused with an explanation rather than faked. See
 > `docs/STAGE_F_REPORT.md` for exactly which backends were verified here — most
 > AI ones were not, because the test machine has none installed.
+>
+> **The AI Studio works with no AI model installed too.** The backend list, the
+> model list, the queue, validation, the video library, the project integration
+> and every refusal path work; what cannot work says so. The built-in clip writer
+> is labelled `TEST BACKEND (fixture - not an AI model)` wherever its output
+> appears, and only a deep check that really produced a file may say VERIFIED.
+> `docs/STAGE_G_REPORT.md` lists exactly what was verified, and what is still
+> PENDING.
 
 **Stage E**, kept intact by this build, turns a project into a real MP4: a
 narration/music/effects mix with ducking, captions generated from measured
@@ -44,11 +54,23 @@ the finished file.
 >   through the built-in and local-command adapters (real code paths, not real
 >   models). AI upscaling and background removal report NOT INSTALLED, and real
 >   diffusion inference is NOT VERIFIED.
+> * **REAL AI MODEL VERIFICATION: PENDING** — Stage G verified the backend
+>   contract, detection, the queue (progress, cancel, retry), output validation,
+>   the video library and the project integration, but no AI model is installed
+>   on the verification machine. Nothing claims that one ran.
+> * **IN-APPLICATION VIDEO PLAYBACK NOT VERIFIED** — QtMultimedia is unavailable
+>   in the verification environment, so the Video library says playback is not
+>   available and offers the system player and the folder instead.
 >
-> Neither the Stage E gate nor the Stage F gate is therefore **declared
-> complete**. The Stage E evidence table is in `docs/STAGE_E_REPORT.md` §15 and
-> the Stage F one in `docs/STAGE_F_REPORT.md` §0, with the outstanding items in
-> §10.
+> The Stage E, F and G gates are therefore **not declared complete**. The Stage E
+> evidence table is in `docs/STAGE_E_REPORT.md` §15, the Stage F one in
+> `docs/STAGE_F_REPORT.md` §0 and the Stage G one in
+> `docs/STAGE_G_REPORT.md` §0, with the outstanding items listed beside it.
+>
+> Stage G's own summary: **1756 passed, 5 skipped, 0 failed** in the full suite
+> (264 of them Stage G tests), and a **28 passed / 0 failed / 7 not available**
+> manual matrix (`scripts/stage_g_manual_matrix.py`) with
+> `REAL AI MODEL VERIFICATION: PENDING` stated on the last line.
 
 ---
 
@@ -221,6 +243,15 @@ and explains how to install it; everything else keeps working.
 | `motion-studio audio validate <project>` | check every audio track exists and fits the timeline |
 | `motion-studio audio mix <project>` | mix the master audio to a WAV you can listen to |
 | `motion-studio subtitles export <project>` | write the `.srt` / `.vtt` caption files |
+| `motion-studio ai backends` | every AI backend, its state and what it needs |
+| `motion-studio ai models` | models offered by usable backends, and what is on disk |
+| `motion-studio ai check [--backend <id>] [--deep]` | light check, or a deep check that really generates |
+| `motion-studio ai selftest [--kind video]` | deep-check every usable backend |
+| `motion-studio ai job status [<id>]` | the AI queue as text or JSON |
+| `motion-studio ai video …` | generate a clip (all five modes) |
+| `motion-studio ai image …` | generate a still through Stage F's engine |
+| `motion-studio ai storyboard <project> [--yes]` | build, approve and run a storyboard plan |
+| `motion-studio ai library list \| inspect \| thumbnail \| scan \| add \| recheck \| remove \| thumbnails` | the video library, filterable and scriptable (`--json`) |
 | `motion-studio gui` | start the interface |
 
 Exit codes: `0` success, `1` problems found, `2` blocked (a required component
@@ -300,6 +331,12 @@ click away in every error dialog (`Copy details`).
 | `docs/STAGE_D_REPORT.md` | evidence that this build meets the Stage D gate |
 | `docs/STAGE_E_REPORT.md` | evidence for the Stage E gate, and what is still unverified |
 | `docs/STAGE_F_REPORT.md` | evidence for the Stage F gate: what was verified, what was not, and why |
+| `docs/STAGE_G_REPORT.md` | evidence for the Stage G gate: verified, not verified, and why |
+| `docs/AI_STUDIO.md` | the AI Studio: backends, models, the queue, results and refusals |
+| `docs/AI_BACKENDS.md` | the backend hierarchy, the manager, light vs deep checks, security |
+| `docs/AI_MODELS.md` | discovery, lazy loading, favourites, the download policy, licences |
+| `docs/IMAGE_GENERATION.md` | what the image engine does, and what it refuses |
+| `docs/VIDEO_GENERATION.md` | the five video modes, the Video library and playback |
 | `docs/IMAGE_STUDIO.md` | how to use Image Studio |
 | `docs/IMAGE_BACKENDS.md` | the six backends, their capabilities and how to add one |
 | `docs/evidence/` | the actual rendered MP4s and caption files |

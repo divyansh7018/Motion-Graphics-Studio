@@ -91,6 +91,11 @@ python scripts/stage_f_manual_matrix.py --data-root /tmp/mgs_stage_f
 # a large library and batches - measured, not invented
 python scripts/stage_f_profile.py --data-root /tmp/mgs_stage_f_profile
 
+# the Stage G manual matrix: backend detection, light vs deep checks, all five
+# video modes, retry rules, validation, the video library, offline behaviour
+# (35 checks, prints PASS/FAIL/N-A and ends with REAL AI MODEL VERIFICATION: PENDING)
+python scripts/stage_g_manual_matrix.py --data-root /tmp/mgs_stage_g
+
 # the Stage E end-to-end deliverable: StageE_Test_Video1.mp4 then _Video2.mp4,
 # both probed and quality-checked, with Video1 proven untouched
 python scripts/stage_e_end_to_end.py --data-root /tmp/stage_e
@@ -181,7 +186,7 @@ the release checklist runs on a new machine.
 
 Later stages add the files named in the directive, in this order:
 
-| Stage | New test files |
+| Stage G | `test_ai_backends.py`, `test_ai_video.py`, `test_ai_jobs.py`, `test_ai_history.py`, `test_ai_project.py`, `test_ai_gui.py`, `test_video_library.py`, `test_video_library_gui.py` (264 tests: the backend contract, the five video modes, the queue and its cancel/retry rules, validation, the library with real FFmpeg, and the whole call chain through the real window) |
 |---|---|
 | B | `test_project.py` (serialisation, migration, damaged file, recovery, undo/redo) |
 | C | `test_script.py`, `test_tts.py`, `test_narration.py`, `test_tts_jobs.py`, `test_narration_ui.py`, `test_cli_voice.py`, `test_checks_voice.py` (parsing, Unicode, import/export, detection, voice + language discovery, preview, generation, WAV validation, staleness, cancellation, failure modes) |
@@ -194,6 +199,9 @@ Later stages add the files named in the directive, in this order:
 
 Existing tests are extended rather than replaced, and every fixed bug gets a
 regression test in the file that owns the behaviour.
+
+The full suite at the end of Stage G: **1756 passed, 5 skipped, 0 failed in
+122.10 s** (1761 collected).  Stage G's own modules contribute 264 of those.
 
 ---
 
@@ -213,3 +221,11 @@ regression test in the file that owns the behaviour.
 | developer tooling lived in `tools/`, the git-ignored runtime FFmpeg folder | the verification script would never have been committed | n/a (repository layout, see `docs/DEVELOPMENT.md`) |
 | a test stand-in `ffmpeg` redirected its last argument to a file unconditionally | a stray `-version` file appeared in the working directory | `test_smoke.py::test_smoke_test_never_writes_into_the_working_directory` |
 | fixed event-loop sleeps in Qt tests | slow, flaky GUI suite (62 s) | `tests/test_job_manager.py` (`wait_until` helper) |
+| warning logging passed the level as a string, so reporting a problem raised instead | every Stage G error path would crash the job it was reporting on | `test_video_library.py::test_log_event_accepts_a_level_name` |
+| a tool object was handed to the OS as a program (thumbnail creation) | "the program could not be started" every time a picture was made | `test_video_library.py::test_the_ffmpeg_binary_is_a_path_in_every_shape` |
+| a clip was called `UNREADABLE` when FFprobe was simply missing | every clip on a machine without FFmpeg reported as broken | `test_video_library.py::test_without_ffprobe_a_clip_is_not_called_broken` |
+| rescanning wiped a real verdict back to `READY` | a corrupt clip looked fine again after a scan | `test_video_library.py::test_a_file_that_cannot_be_measured_is_still_listed` |
+| a failed import reported nothing (the refresh overwrote the message) | the user saw "The library is empty" and never learned the import failed | `test_video_library_gui.py::test_a_job_that_fails_leaves_an_honest_message` |
+| a clip from a fixture or an import could claim `is_ai_model: true` | a test backend's output presented as an AI result | `test_video_library_gui.py::test_a_clip_from_a_test_backend_never_claims_an_ai_model` |
+| Retry refused in every case, so the button could never retry | a dead button, and no way to repeat a failed job | `test_ai_gui.py::test_a_failed_job_is_retried_with_the_same_seed_and_settings` |
+| the sidebar still listed a "(later)" page after the last one was built | the GUI suite's honesty rule stopped being checked | `test_gui.py::test_no_workflow_page_is_a_fake_button` |

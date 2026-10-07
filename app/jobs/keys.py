@@ -58,6 +58,28 @@ class JobKeys:
     IMAGE_LIBRARY_SCAN = "image.library_scan"
     IMAGE_THUMBNAILS = "image.thumbnails"
 
+    # -- Stage G (AI Studio) ----------------------------------------------
+    AI_DETECT = "ai.detect"
+    AI_MODEL_CHECK = "ai.model_check"
+    AI_BACKEND_TEST = "ai.backend_test"
+    AI_VIDEO_GENERATE = "ai.video.generate"
+    AI_VIDEO_BATCH = "ai.video.batch"
+    AI_VIDEO_EXTEND = "ai.video.extend"
+    AI_VIDEO_UPSCALE = "ai.video.upscale"
+    AI_IMAGE_GENERATE = "ai.image.generate"
+    AI_HISTORY_SCAN = "ai.history_scan"
+    AI_REFERENCES_IMPORT = "ai.references.import"
+    AI_SEND_TO_PROJECT = "ai.send_to_project"
+    AI_SEND_TO_SCENE = "ai.send_to_scene"
+    AI_SEND_TO_TIMELINE = "ai.send_to_timeline"
+
+    # -- Stage G (Video Library) ------------------------------------------
+    VIDEO_LIBRARY_SCAN = "video.library.scan"
+    VIDEO_LIBRARY_IMPORT = "video.library.import"
+    VIDEO_LIBRARY_THUMBNAILS = "video.library.thumbnails"
+    VIDEO_LIBRARY_REMOVE = "video.library.remove"
+    VIDEO_LIBRARY_RECHECK = "video.library.recheck"
+
 
 #: Keys that are allowed to run in parallel with themselves (used only where
 #: duplication is impossible, e.g. read-only scans).

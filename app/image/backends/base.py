@@ -14,11 +14,11 @@ executes code, and no adapter invents a command line (section 67).
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from ...core.logging_setup import log_event
+from ...core.process import run_process as _run_process
 from ..provider import GenerationResult, GenerationState
 from ..validation import validate_image_file
 
@@ -34,90 +34,14 @@ def run_process(argv: Sequence[str], *, timeout: float = 3600.0,
     Returns ``(returncode, stdout, stderr, cancelled)``.  The child is killed on
     cancel rather than left running, which is what stops a cancelled generation
     from leaving a zombie process behind (section 35).
+
+    The implementation lives in :mod:`app.core.process` so the image and video
+    adapters cannot drift apart; this is the Stage F signature kept intact for
+    the adapters written against it.
     """
-    cancelled = False
-    stdout_text = ""
-    stderr_text = ""
-    try:
-        process = subprocess.Popen(
-            [str(part) for part in argv],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            stdin=subprocess.PIPE if stdin_data is not None else None,
-            cwd=str(cwd) if cwd else None,
-            creationflags=_no_window_flags(),
-        )
-    except OSError as exc:
-        return -1, "", f"The program could not be started: {exc}", False
-
-    if cancel is not None:
-        _register_child(cancel, process)
-    try:
-        try:
-            out, err = process.communicate(input=stdin_data, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            _kill(process)
-            return -1, "", f"The program did not finish within {timeout:.0f} seconds.", False
-        stdout_text = (out or b"").decode("utf-8", "replace")
-        stderr_text = (err or b"").decode("utf-8", "replace")
-    finally:
-        if cancel is not None:
-            _unregister_child(cancel, process)
-
-    if cancel is not None and cancel.is_cancelled():
-        _kill(process)
-        cancelled = True
-    return (process.returncode if process.returncode is not None else -1,
-            stdout_text, stderr_text, cancelled)
-
-
-def _register_child(cancel: Any, process: subprocess.Popen) -> None:
-    """Hand a child process to a cancel token so a cancel really stops it.
-
-    :class:`app.jobs.cancel.CancelToken` calls this ``register_process``.  The
-    adapter used to look for ``register`` - a name the token does not have - so
-    the child was never tracked: cancelling an image generation marked the job
-    cancelled *after the child had finished*, leaving the model running in the
-    background for as long as it liked.  Both names are accepted here so neither
-    spelling can silently do nothing again.
-    """
-    for name in ("register_process", "register"):
-        method = getattr(cancel, name, None)
-        if callable(method):
-            try:
-                method(process)
-            except Exception:  # noqa: BLE001 - tracking must never break a run
-                return
-            return
-
-
-def _unregister_child(cancel: Any, process: subprocess.Popen) -> None:
-    """Stop tracking a child process once it has been dealt with."""
-    for name in ("unregister_process", "unregister"):
-        method = getattr(cancel, name, None)
-        if callable(method):
-            try:
-                method(process)
-            except Exception:  # noqa: BLE001
-                return
-            return
-
-
-def _kill(process: Any) -> None:
-    try:
-        if process.poll() is None:
-            process.kill()
-            process.communicate(timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        pass
-
-
-def _no_window_flags() -> int:
-    """Hide the console window on Windows; a no-op elsewhere."""
-    import sys
-
-    if sys.platform == "win32":
-        return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return 0
+    outcome = _run_process(argv, timeout=timeout, cancel=cancel, cwd=cwd,
+                           stdin_data=stdin_data)
+    return outcome.as_tuple()
 
 
 def verify_output(path: Any, *, expected_width: int = 0,

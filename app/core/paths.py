@@ -33,6 +33,7 @@ DATA_SUBDIRECTORIES: tuple[str, ...] = (
     "projects",
     "assets",
     "images",
+    "videos",
     "templates",
     "themes",
     "models",
@@ -53,6 +54,7 @@ PROTECTED_DIRECTORIES: tuple[str, ...] = (
     "projects",
     "assets",
     "images",
+    "videos",
     "templates",
     "themes",
     "models",
@@ -344,6 +346,16 @@ class AppPaths:
     def images_dir(self) -> Path:
         """The image library: the user's own pictures, never cleared."""
         return self._sub("images")
+
+    @property
+    def videos_dir(self) -> Path:
+        """The video library: finished and generated clips, never cleared."""
+        return self._sub("videos")
+
+    @property
+    def video_thumbnails_dir(self) -> Path:
+        """Cached clip pictures.  Regenerable, so it is safe to clear."""
+        return self.cache_dir / "video_thumbs"
 
     @property
     def image_thumbnails_dir(self) -> Path:

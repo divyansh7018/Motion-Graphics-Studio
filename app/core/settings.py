@@ -184,6 +184,58 @@ class ImageSettings:
 
 
 @dataclass
+class AISettings:
+    """AI Studio options (Stage G, sections 5, 6, 12, 63).
+
+    Everything here is either a choice the user made or something the studio
+    remembered for them.  There is no API key, no account and no remote
+    address: a local backend is addressed by a folder, a command or a loopback
+    URL, and only a loopback URL is accepted.
+    """
+
+    #: Which view the studio opens on: image | video | jobs | history.
+    active_tab: str = "image"
+    #: Per-backend enable flags, by backend id.  Absent means enabled.
+    disabled_backends: list = field(default_factory=list)
+    #: Per-backend settings, by backend id (flat key/value pairs).
+    backend_settings: dict = field(default_factory=dict)
+    #: The backend and model the video half starts on.  "" means "detect".
+    video_backend: str = ""
+    video_model: str = ""
+    #: A local video command, mirroring the image one.
+    video_command: str = ""
+    #: Local HTTP video endpoint and ComfyUI video workflow.
+    video_endpoint: str = ""
+    comfyui_video_workflow: str = ""
+    #: A local Python video module, and a Diffusers model folder.
+    python_video_module: str = ""
+    diffusers_video_model: str = ""
+    #: Last used video settings, so the form survives a restart.
+    last_video_mode: str = ""
+    last_video_width: int = 0
+    last_video_height: int = 0
+    last_video_duration: float = 0.0
+    last_video_fps: int = 0
+    last_video_quality: str = ""
+    last_video_output_dir: str = ""
+    #: Where models are looked for, beyond the application's own folder.
+    model_folders: list = field(default_factory=list)
+    #: Whether the studio may reach a model hub to fetch weights.  Off until
+    #: the user turns it on: nothing downloads by accident (section 40).
+    allow_model_downloads: bool = False
+    #: Reuse the loaded model between jobs (a real saving on big models).
+    keep_models_loaded: bool = True
+    #: Show the memory estimate before a big generation (section 42).
+    show_memory_estimate: bool = True
+    #: Beginner mode hides advanced generation settings (section 48).
+    beginner_mode: bool = True
+    #: Projects may opt into an automatic pipeline only when this is on
+    #: (section 51).  It is off in a new installation.
+    allow_automatic_pipeline: bool = False
+    recent_prompts: list = field(default_factory=list)
+
+
+@dataclass
 class SubtitleSettings:
     """Subtitles are optional and off until requested (section 35)."""
 
@@ -242,6 +294,7 @@ class Settings:
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     preview: PreviewSettings = field(default_factory=PreviewSettings)
     image: ImageSettings = field(default_factory=ImageSettings)
+    ai: AISettings = field(default_factory=AISettings)
     subtitles: SubtitleSettings = field(default_factory=SubtitleSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     window: WindowSettings = field(default_factory=WindowSettings)
@@ -341,6 +394,23 @@ class Settings:
         if image.get("backend") not in ("none", "procedural", "local_ai"):
             notes.append(f"image.backend: '{image.get('backend')}' unknown - using 'none'")
             image["backend"] = "none"
+
+        ai = data["ai"]
+        ai["last_video_width"] = clamp("ai.last_video_width", ai.get("last_video_width"), 0, 7680)
+        ai["last_video_height"] = clamp("ai.last_video_height", ai.get("last_video_height"), 0, 7680)
+        ai["last_video_duration"] = clamp("ai.last_video_duration", ai.get("last_video_duration"), 0.0, 3600.0)
+        ai["last_video_fps"] = clamp("ai.last_video_fps", ai.get("last_video_fps"), 0, 120)
+        if str(ai.get("active_tab", "image")) not in ("image", "video", "jobs", "history"):
+            notes.append(f"ai.active_tab: '{ai.get('active_tab')}' unknown - using 'image'")
+            ai["active_tab"] = "image"
+        for key in ("disabled_backends", "model_folders", "recent_prompts"):
+            value = ai.get(key)
+            if not isinstance(value, list):
+                notes.append(f"ai.{key}: expected a list, using an empty one")
+                ai[key] = []
+        if not isinstance(ai.get("backend_settings"), dict):
+            notes.append("ai.backend_settings: expected an object, using an empty one")
+            ai["backend_settings"] = {}
 
         subtitles = data["subtitles"]
         subtitles["max_lines"] = clamp("subtitles.max_lines", subtitles.get("max_lines"), 1, 6)

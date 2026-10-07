@@ -183,10 +183,38 @@ def shutdown_logging() -> None:
     _configured = False
 
 
+#: Level names accepted by :func:`log_event`, so a caller can say "WARNING"
+#: as easily as ``logging.WARNING``.  Reporting a problem must never be the
+#: thing that fails: every warning branch in this application goes through here,
+#: and a mistyped level would turn "warn about it" into "crash on it".
+LEVEL_NAMES: dict[str, int] = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+}
+
+
+def resolve_level(level: Any) -> int:
+    """An integer logging level from an integer, a name, or nothing usable."""
+    if isinstance(level, bool):  # bool is an int subclass; treat it as "unset"
+        return logging.INFO
+    if isinstance(level, int):
+        return int(level)
+    name = str(level or "").strip().upper()
+    if name in LEVEL_NAMES:
+        return LEVEL_NAMES[name]
+    numeric = logging.getLevelName(name)
+    if isinstance(numeric, int):
+        return numeric
+    return logging.INFO
+
+
 def log_event(
     event: str,
     message: str = "",
-    level: int = logging.INFO,
+    level: Any = logging.INFO,
     logger: Optional[logging.Logger] = None,
     **fields: Any,
 ) -> None:
@@ -196,9 +224,11 @@ def log_event(
 
         EVENT=JOB_START job=tts_preview id=7 note="..."
 
-    Values containing spaces are quoted; ``None`` values are skipped.
+    Values containing spaces are quoted; ``None`` values are skipped.  ``level``
+    may be an integer (``logging.WARNING``) or its name (``"WARNING"``).
     """
     target = logger or get_logger()
+    level = resolve_level(level)
     rendered_fields = " ".join(
         f"{key}={_format_value(value)}" for key, value in sorted(fields.items()) if value is not None
     )

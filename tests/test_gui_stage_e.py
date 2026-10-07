@@ -104,11 +104,17 @@ def test_all_four_stage_e_pages_are_in_the_navigation(window) -> None:
 
 
 def test_the_old_placeholder_entries_are_gone(window) -> None:
-    """'Music (later)', 'Timeline (later)' and 'Render (later)' must not remain."""
+    """'Music (later)', 'Timeline (later)' and 'Render (later)' must not remain.
+
+    Stage G built the last placeholder (the Video library), so the sidebar now
+    carries no "(later)" entry at all - and the label check below still fails if
+    one ever reappears.
+    """
     labels = [window.nav.item(row).text() for row in range(window.nav.count())]
     for label in labels:
-        assert "(later)" not in label or label.startswith(("Visuals", "Video library")), \
+        assert "(later)" not in label, \
             f"a built page is still listed as future work: {label}"
+    assert "Video library" in labels
 
 
 def test_no_button_on_the_stage_e_pages_is_dead(window) -> None:

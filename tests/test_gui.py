@@ -122,18 +122,37 @@ def test_navigation_switches_pages(window) -> None:
     assert window.stack.currentWidget() is window._pages["welcome"]
 
 
-def test_future_pages_are_disabled_not_fake_buttons(window) -> None:
-    """Unimplemented workflow pages must be visibly unavailable (section 54)."""
+def test_no_workflow_page_is_a_fake_button(window) -> None:
+    """Every workflow page in the sidebar is real, and the rule that made
+    placeholders visible still holds for whatever is left (section 54).
+
+    Stage G built the last one (the Video library), so there are no future
+    entries left - but any entry that *is* labelled "later" must stay
+    unclickable, with a tooltip explaining why.
+    """
     from PySide6.QtCore import Qt
+
+    from app.ui.main_window import FUTURE_PAGES
 
     future_labels = []
     for row in range(window.nav.count()):
         item = window.nav.item(row)
-        if item.text().endswith("(later)") or "(later)" in item.text():
+        if "(later)" in item.text():
             future_labels.append(item)
             assert not (item.flags() & Qt.ItemIsEnabled), "future pages must not be clickable"
             assert item.toolTip(), "future pages must explain why they are unavailable"
-    assert future_labels, "the roadmap entries should be visible"
+    assert len(future_labels) == len(FUTURE_PAGES), \
+        "the sidebar and the roadmap list must agree"
+
+    # Every page listed as ready is in the sidebar and really opens.
+    from app.ui.main_window import PAGES
+
+    labels = [window.nav.item(row).text() for row in range(window.nav.count())]
+    for key, label, _section, state in PAGES:
+        if state != "ready":
+            continue
+        assert label in labels, f"{key} is missing from the sidebar"
+        assert window._pages.get(key) is not None, f"{key} is not built"
 
     # Stage B is implemented, so the project actions are live - and the ones
     # that are not built yet stay disabled with an explanation.

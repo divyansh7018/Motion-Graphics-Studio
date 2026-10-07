@@ -1,6 +1,14 @@
 # Stage F report - Image Studio, local generation, editing and asset integration
 
-**Version 0.6.0 / Stage F.** Schema `PROJECT_SCHEMA_VERSION` stays **3** (every
+**Version 0.6.0 / Stage F.**
+
+> **Correction, added during Stage G.** This report announced version 0.6.0, but
+> `app/core/version.py` was never bumped: it still read `0.5.0 / stage E` when
+> Stage G started. Stage G set the constant to **0.7.0 / stage G** so the code
+> and the reports agree from here on, and recorded **0.6.0 as skipped** in
+> `docs/STAGE_G_REPORT.md`. Nothing else about Stage F changed.
+
+Schema `PROJECT_SCHEMA_VERSION` stays **3** (every
 Stage F addition is additive; `tests/test_schema_stage_e.py` still proves
 compatibility).
 
